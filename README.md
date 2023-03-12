@@ -1,4 +1,4 @@
-# simple-kubernetes-operator
+# simple-kubernetes-operator (so)
 
 ## Prerequisite
 
@@ -30,3 +30,73 @@ To further debug and diagnose cluster problems, use 'kubectl cluster-info dump'.
 ```
 
 Now we have a cluster environment. Let's jump into the interesting part.
+
+## Install & Run
+
+# Install Custom Resource Definition (CRD)
+
+Install CRD:
+```
+kubectl apply -f so-crd.yaml
+```
+
+After installation the `simpleoperators` CRD will be available as an ordinary resource:
+```
+kubectl api-resources | grep simpl
+simpleoperators                   so           szikes.io/v1alpha1                     true         SimpleOperator
+```
+
+# Create custom object
+
+Modify the `so-create.yaml` based on your needs then execute:
+```
+kubectl apply -f so-create.yaml
+```
+
+Simple object check:
+```
+kubectl get so
+```
+```
+NAME                    AGE
+simpleoperator-szikes   6s
+```
+
+Verbose object check:
+```
+kubectl describe so simpleoperator-szikes
+```
+```
+Name:         simpleoperator-szikes
+Namespace:    default
+Labels:       <none>
+Annotations:  <none>
+API Version:  szikes.io/v1alpha1
+Kind:         SimpleOperator
+Metadata:
+  Creation Timestamp:  2023-03-12T14:55:35Z
+  Generation:          1
+  Managed Fields:
+    API Version:  szikes.io/v1alpha1
+    Fields Type:  FieldsV1
+    fieldsV1:
+      f:metadata:
+        f:annotations:
+          .:
+          f:kubectl.kubernetes.io/last-applied-configuration:
+      f:spec:
+        .:
+        f:host:
+        f:image:
+        f:replicas:
+    Manager:         kubectl-client-side-apply
+    Operation:       Update
+    Time:            2023-03-12T14:55:35Z
+  Resource Version:  131720
+  UID:               26c25c50-dd5d-4af9-a612-30675797afb6
+Spec:
+  Host:      host?
+  Image:     hello-world:latest
+  Replicas:  5
+Events:      <none>
+```

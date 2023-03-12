@@ -1,0 +1,9 @@
+# https://kubernetes.io/docs/tasks/extend-kubernetes/custom-resources/custom-resource-definitions/
+apiVersion: szikes.io/v1alpha1
+kind: SimpleOperator
+metadata:
+  name: simpleoperator-szikes
+spec:
+  host: "host?"
+  image: "hello-world:latest"
+  replicas: 5
