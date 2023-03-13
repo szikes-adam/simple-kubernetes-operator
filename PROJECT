@@ -7,4 +7,14 @@ layout:
 - go.kubebuilder.io/v3
 projectName: simple-kubernetes-operator
 repo: github.com/szikes-adam/simple-kubernetes-operator
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: szikes.io
+  group: simpleoperator
+  kind: SimpleOperator
+  path: github.com/szikes-adam/simple-kubernetes-operator/api/v1alpha1
+  version: v1alpha1
 version: "3"

@@ -109,8 +109,9 @@ Move to git project and execute:
 ```
 kubebuilder init --domain szikes.io --repo github.com/szikes-adam/simple-kubernetes-operator
 
-kubebuilder create api --group szikes.io --version v1alpha1 --kind SimpleOperator
+kubebuilder create api --group simpleoperator --version v1alpha1 --kind SimpleOperator
 ```
++ extend manually the api/v1alpha1/simpleoperator_types.go based on https://book.kubebuilder.io/reference/markers/crd-validation.html
 
 ## Build controller
 
