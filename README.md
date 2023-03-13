@@ -100,3 +100,31 @@ Spec:
   Replicas:  5
 Events:      <none>
 ```
+
+## Controller creation
+
+Install go (1.19), kubebuilder (3.9.1) at first.
+
+Move to git project and execute:
+```
+kubebuilder init --domain szikes.io --repo github.com/szikes-adam/simple-kubernetes-operator
+
+kubebuilder create api --group szikes.io --version v1alpha1 --kind SimpleOperator
+```
+
+## Build controller
+
+If you made API changes then run:
+```
+make manifests
+```
+
+But you can skip the previous step because the following will genreate CRD and install on cluster:
+```
+make install
+```
+
+```
+export ENABLE_WEBHOOKS=false
+make run
+```
