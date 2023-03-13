@@ -10,3 +10,6 @@ metadata:
   name: simpleoperator-sample
 spec:
   # TODO(user): Add fields here
+  host: szikes.127.0.0.1.nip.io
+  image: nginx:latest
+  #replicas: 5

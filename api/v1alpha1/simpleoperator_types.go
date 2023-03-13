@@ -28,8 +28,22 @@ type SimpleOperatorSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// Foo is an example field of SimpleOperator. Edit simpleoperator_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	// Specify the host for accessing Ingress e.g: szikes.127.0.0.1.nip.io
+	// More details about nip.io: https://nip.io
+	// +kubebuilder:validation:Required
+	Host string `json:"host,omitempty"`
+
+	// Speficy the image with a tag optionally e.g: nginx:latest
+	// +kubebuilder:validation:Required
+	Image string `json:"image,omitempty"`
+
+	// Specify the number of replicas.
+	// +kubebuilder:validation:Maximum:=10
+	// +kubebuilder:validation:Minimum:=1
+	// +kubebuilder:default:=1
+	Replicas int `json:"replicas,omitempty"`
+
+	// https://book.kubebuilder.io/reference/markers/crd-validation.html
 }
 
 // SimpleOperatorStatus defines the observed state of SimpleOperator
