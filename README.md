@@ -1,5 +1,7 @@
 # simple-kubernetes-operator (so)
 
+![CI](https://github.com/szykes/simple-kubernetes-operator/actions/workflows/ci.yml/badge.svg) ![Docker](https://github.com/szykes/simple-kubernetes-operator/actions/workflows/docker.yml/badge.svg)
+
 ## Prerequisite
 
 Having installed docker (engine version 23.0.1, containerd version: 1.6.18), kubectl (v1.26.2), and kind (v0.17.0).
