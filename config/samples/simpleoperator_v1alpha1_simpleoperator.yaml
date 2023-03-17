@@ -9,7 +9,7 @@ metadata:
     app.kubernetes.io/created-by: simple-kubernetes-operator
   name: simpleoperator-sample
 spec:
-  # TODO(user): Add fields here
-  host: szikes.127.0.0.1.nip.io
+  #host: szykes-192-168-1-2.nip.io
+  host: szikes.hu
   image: nginx:latest
   #replicas: 5
