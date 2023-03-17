@@ -158,3 +158,45 @@ Spec:
   Replicas:  5
 Events:      <none>
 ```
+
+### Accessing docker images
+
+At first read & do: [Creating a personal access token (PAT)](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token)
+
+Login with docker on the machine that needs access:
+```
+docker login ghcr.io
+```
+> It will ask for your username on GitHub and your PAT
+
+If everything does well, you will see this:
+```
+WARNING! Your password will be stored unencrypted in /home/buherton/.docker/config.json.
+Configure a credential helper to remove this warning. See
+https://docs.docker.com/engine/reference/commandline/login/#credentials-store
+
+Login Succeeded
+```
+
+Verifying access by:
+```
+docker pull ghcr.io/szykes/simple-kubernetes-operator:main
+```
+
+You should see similar to this:
+```
+main: Pulling from szykes/simple-kubernetes-operator
+10f855b03c8a: Pull complete
+fe5ca62666f0: Pull complete
+b438aade3922: Pull complete
+fcb6f6d2c998: Pull complete
+e8c73c638ae9: Pull complete
+1e3d9b7d1452: Pull complete
+4aa0ea1413d3: Pull complete
+7c881f9ab25e: Pull complete
+5627a970d25e: Pull complete
+aefd672debf9: Pull complete
+Digest: sha256:48e6d8e4cd8252ba3044a1baae7deac41e1be42d80320c3b27d6fae2f14c4cc0
+Status: Downloaded newer image for ghcr.io/szykes/simple-kubernetes-operator:main
+ghcr.io/szykes/simple-kubernetes-operator:main
+```
