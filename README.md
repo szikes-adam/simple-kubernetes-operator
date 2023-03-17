@@ -107,8 +107,11 @@ If everything goes well, you will see something like this:
 <img width="553" alt="Screenshot 2023-03-17 at 19 31 36" src="https://user-images.githubusercontent.com/8822138/226025230-db70d767-340a-4268-a7f1-d72986f59cbb.png">
 
 Reference:
+
 [DigitalOcean - How to Set Up an Nginx Ingress with Cert-Manager on DigitalOcean Kubernetes](https://www.digitalocean.com/community/tutorials/how-to-set-up-an-nginx-ingress-with-cert-manager-on-digitalocean-kubernetes#step-4-installing-and-configuring-cert-manager)
+
 [cert-manager - Troubleshooting Problems with ACME / Let's Encrypt Certificates](https://cert-manager.io/docs/troubleshooting/acme/)
+
 [kubernetes - Ingress](https://kubernetes.io/docs/concepts/services-networking/ingress/#tls)
 
 ## Project creation
@@ -126,7 +129,9 @@ kubebuilder create api --group simpleoperator --version v1alpha1 --kind SimpleOp
 + extend manually the api/v1alpha1/simpleoperator_types.go based on [kubebuilder - CRD validation](https://book.kubebuilder.io/reference/markers/crd-validation.html)
 
 Reference:
+
 [kubebuilder - Tutorial: Building CronJob](https://book.kubebuilder.io/cronjob-tutorial/cronjob-tutorial.html)
+
 [kubebuilder - Adding a new API](https://book.kubebuilder.io/cronjob-tutorial/new-api.html)
 
 ### GitHub Actions
@@ -141,7 +146,9 @@ File location in project:
 `.github/workflows/ci.yml`
 
 Reference:
+
 [GitHub - Building and testing Go](https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go)
+
 [banzaicloud/koperator - ci.yml](https://github.com/banzaicloud/koperator/blob/master/.github/workflows/ci.yml)
 
 ### Docker
@@ -156,7 +163,9 @@ File location in project:
 `.github/workflows/docker.yml`
 
 Reference:
+
 [GitHub - Publishing Docker images](https://docs.github.com/en/actions/publishing-packages/publishing-docker-images)
+
 [banzaicloud/koperator - docker.yml](https://github.com/banzaicloud/koperator/blob/master/.github/workflows/docker.yml)
 
 ### Accessing docker images
