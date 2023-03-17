@@ -102,7 +102,6 @@ I use staging issuer because I can verify TLS certifcate mechanism in this way w
 If everything goes well, you will see something like this:
 <img width="553" alt="Screenshot 2023-03-17 at 19 31 36" src="https://user-images.githubusercontent.com/8822138/226025230-db70d767-340a-4268-a7f1-d72986f59cbb.png">
 
-
 Reference:
 [DigitalOcean - How to Set Up an Nginx Ingress with Cert-Manager on DigitalOcean Kubernetes](https://www.digitalocean.com/community/tutorials/how-to-set-up-an-nginx-ingress-with-cert-manager-on-digitalocean-kubernetes#step-4-installing-and-configuring-cert-manager)
 [cert-manager - Troubleshooting Problems with ACME / Let's Encrypt Certificates](https://cert-manager.io/docs/troubleshooting/acme/)
