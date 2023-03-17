@@ -75,6 +75,8 @@ Please do not forget ISP gives you dynamic IP address to your router that may ch
 
 Let's use the [FQDN](https://www.techtarget.com/whatis/definition/fully-qualified-domain-name-FQDN) e.g.: `szykes.ddns.net` in Ingress.
 
+If you don't want to access outside the cluster, then use [nip.io](https://nip.io) just for fun.
+
 ### Setup `cert-manager` with `Let's Encrypt` for `NGINX`
 
 Setup `cert-manager`:
