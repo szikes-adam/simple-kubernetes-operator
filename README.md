@@ -100,6 +100,10 @@ kubectl get certificate -o wide
 I use staging issuer because I can verify TLS certifcate mechanism in this way without bothering the production side of `Let's encrypt`.
 
 If everything goes well, you will see something like this:
+
+
+
+
 <img width="553" alt="Screenshot 2023-03-17 at 19 31 36" src="https://user-images.githubusercontent.com/8822138/226025230-db70d767-340a-4268-a7f1-d72986f59cbb.png">
 
 Reference:
