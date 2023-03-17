@@ -4,15 +4,17 @@
 
 As the git project names says this is a really simple kubernetes operator implementation.
 
+> All commands must executed at level of git project root
+
 ## Prerequisite
 
-Having installed `docker` (`engine` version 23.0.1, `containerd` version: 1.6.18), `kubectl` (v1.26.2), and `kind` (v0.17.0).
+Having installed `docker` (`engine` version 23.0.1, `containerd` version: 1.6.18), `kubectl` (v1.26.2), and `kind` (v0.17.0) on a Linux based server.
 
-I use a machine with CPU Intel J3455, 8 GB RAM, and having 60 GB free space for /.
+Server has CPU Intel J3455, 8 GB RAM, and having 60 GB free space for /.
 
 Clone or download the repo.
 
-> All commands must executed at level of git project root
+### Setup a `kind` based cluster
 
 Create cluster with `kind`:
 ```
@@ -39,7 +41,7 @@ Now we have a cluster environment. Let's jump into the interesting part.
 
 ### Custom Resource Controller
 
-Install go (1.19), kubebuilder (3.9.1) at first.
+Install `go` (1.19) & `kubebuilder` (3.9.1) at first.
 
 Move to git project and execute:
 ```
@@ -47,7 +49,11 @@ kubebuilder init --domain szikes.io --repo github.com/szikes-adam/simple-kuberne
 
 kubebuilder create api --group simpleoperator --version v1alpha1 --kind SimpleOperator
 ```
-+ extend manually the api/v1alpha1/simpleoperator_types.go based on https://book.kubebuilder.io/reference/markers/crd-validation.html
++ extend manually the api/v1alpha1/simpleoperator_types.go based on [kubebuilder - CRD validation](https://book.kubebuilder.io/reference/markers/crd-validation.html)
+
+Reference:
+[kubebuilder - Tutorial: Building CronJob](https://book.kubebuilder.io/cronjob-tutorial/cronjob-tutorial.html)
+[kubebuilder - Adding a new API](https://book.kubebuilder.io/cronjob-tutorial/new-api.html)
 
 ### GitHub Actions
 
@@ -60,6 +66,10 @@ Triggered by pushing new commit on `main` and pull request.
 File location in project:
 `.github/workflows/ci.yml`
 
+Reference:
+[GitHub - Building and testing Go](https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go)
+[banzaicloud/koperator - ci.yml](https://github.com/banzaicloud/koperator/blob/master/.github/workflows/ci.yml)
+
 ### Docker
 
 It builds docker image by using `Dockerfile` at the project root.
@@ -70,6 +80,10 @@ Building and pushing docker images are triggered by pushing new commit on `main`
 
 File location in project:
 `.github/workflows/docker.yml`
+
+Reference:
+[GitHub - Publishing Docker images](https://docs.github.com/en/actions/publishing-packages/publishing-docker-images)
+[banzaicloud/koperator - docker.yml](https://github.com/banzaicloud/koperator/blob/master/.github/workflows/docker.yml)
 
 ## Build, Install, Run
 
@@ -90,6 +104,21 @@ export ENABLE_WEBHOOKS=false
 make run
 ```
 
+Reference:
+[kubebuilder - Running and deploying the controller](https://book.kubebuilder.io/cronjob-tutorial/running.html)
+
+## Further development
+
+Not all areas of this project were deeply investigated and built due to limited time.
+
+Here is the list that I would do in a next phase:
+* Use `:latest` tag for docker image
+* Have a proper versioning (rc, beta, etc.) for git project and docker image
+
+* Use TLS between within cluster
+* Encrypt Secrets
+
+--------
 
 # Install Custom Resource Definition (CRD)
 
