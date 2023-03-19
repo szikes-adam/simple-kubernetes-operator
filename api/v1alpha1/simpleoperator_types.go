@@ -21,7 +21,15 @@ import (
 )
 
 const (
-	State = "State"
+	InternalError        = "InternalError"
+	Creating             = "Creating"
+	FailedToCreate       = "FailedToCreate"
+	UpdatingChange       = "UpdatingChange"
+	FailedToUpdateChange = "FailedToUpdateChange"
+	Reconciling          = "Reconciling"
+	Reconciled           = "Reconciled"
+	Deleting             = "Deleting"
+	FailedToDelete       = "FailedToDelete"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
@@ -51,10 +59,26 @@ type SimpleOperatorSpec struct {
 
 // SimpleOperatorStatus defines the observed state of SimpleOperator
 type SimpleOperatorStatus struct {
-	// Indicates the current state of `simpleoperator`. Possible values: TODO
-	State string `json:"state"`
+	// Indicates the current state of deployment.
+	DeploymentState string `json:"deploymentState"`
 
-	// Shows current number of replicas
+	// Shows error in case of deploymentState InternalError or FailedTo*
+	DeploymentErrorMsg string `json:"deploymentErrorMsg,omitempty"`
+
+	// Indicates the current state of service.
+	ServiceState string `json:"serviceState"`
+
+	// Shows error in case of serviceState InternalError or FailedTo*
+	ServiceErrorMsg string `json:"serviceErrorMsg,omitempty"`
+
+	// Indicates the current state of ingress.
+	IngressState string `json:"ingressState"`
+
+	// Shows error in case of ingressState InternalError or FailedTo*
+	IngressErrorMsg string `json:"ingressErrorMsg,omitempty"`
+
+	// Shows current number of available replicas.
+	// Meaning of avabilableReplicas: https://stackoverflow.com/questions/66317251/couldnt-understand-availablereplicas-readyreplicas-unavailablereplicas-in-dep
 	AvabilableReplicas int32 `json:"availableReplicas"`
 
 	// Indicates the last time, when the `simpleoperator` has changed on resource

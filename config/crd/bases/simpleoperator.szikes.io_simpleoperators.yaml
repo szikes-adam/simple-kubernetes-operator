@@ -55,21 +55,41 @@ spec:
             description: SimpleOperatorStatus defines the observed state of SimpleOperator
             properties:
               availableReplicas:
-                description: Shows current number of replicas
+                description: 'Shows current number of available replicas. Meaning
+                  of avabilableReplicas: https://stackoverflow.com/questions/66317251/couldnt-understand-availablereplicas-readyreplicas-unavailablereplicas-in-dep'
                 format: int32
                 type: integer
+              deploymentErrorMsg:
+                description: Shows error in case of deploymentState InternalError
+                  or FailedTo*
+                type: string
+              deploymentState:
+                description: Indicates the current state of deployment.
+                type: string
+              ingressErrorMsg:
+                description: Shows error in case of ingressState InternalError or
+                  FailedTo*
+                type: string
+              ingressState:
+                description: Indicates the current state of ingress.
+                type: string
               lastUpdated:
                 description: Indicates the last time, when the `simpleoperator` has
                   changed on resource
                 type: string
-              state:
-                description: 'Indicates the current state of `simpleoperator`. Possible
-                  values: TODO'
+              serviceErrorMsg:
+                description: Shows error in case of serviceState InternalError or
+                  FailedTo*
+                type: string
+              serviceState:
+                description: Indicates the current state of service.
                 type: string
             required:
             - availableReplicas
+            - deploymentState
+            - ingressState
             - lastUpdated
-            - state
+            - serviceState
             type: object
         type: object
     served: true
