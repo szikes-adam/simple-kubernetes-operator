@@ -12,6 +12,8 @@ spec:
     kind: SimpleOperator
     listKind: SimpleOperatorList
     plural: simpleoperators
+    shortNames:
+    - so
     singular: simpleoperator
   scope: Namespaced
   versions:
@@ -36,8 +38,7 @@ spec:
             description: SimpleOperatorSpec defines the desired state of SimpleOperator
             properties:
               host:
-                description: 'Specify the host for accessing Ingress e.g: szikes.127.0.0.1.nip.io
-                  More details about nip.io: https://nip.io'
+                description: 'Specify the host for accessing Ingress e.g: szikes.hu'
                 type: string
               image:
                 description: 'Speficy the image with a tag optionally e.g: nginx:latest'
@@ -45,12 +46,30 @@ spec:
               replicas:
                 default: 1
                 description: Specify the number of replicas.
+                format: int32
                 maximum: 10
                 minimum: 1
                 type: integer
             type: object
           status:
             description: SimpleOperatorStatus defines the observed state of SimpleOperator
+            properties:
+              availableReplicas:
+                description: Shows current number of replicas
+                format: int32
+                type: integer
+              lastUpdated:
+                description: Indicates the last time, when the `simpleoperator` has
+                  changed on resource
+                type: string
+              state:
+                description: 'Indicates the current state of `simpleoperator`. Possible
+                  values: TODO'
+                type: string
+            required:
+            - availableReplicas
+            - lastUpdated
+            - state
             type: object
         type: object
     served: true

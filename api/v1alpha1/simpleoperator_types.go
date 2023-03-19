@@ -20,6 +20,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+const (
+	State = "State"
+)
+
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
@@ -28,8 +32,7 @@ type SimpleOperatorSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// Specify the host for accessing Ingress e.g: szikes.127.0.0.1.nip.io
-	// More details about nip.io: https://nip.io
+	// Specify the host for accessing Ingress e.g: szikes.hu
 	// +kubebuilder:validation:Required
 	Host string `json:"host,omitempty"`
 
@@ -41,19 +44,26 @@ type SimpleOperatorSpec struct {
 	// +kubebuilder:validation:Maximum:=10
 	// +kubebuilder:validation:Minimum:=1
 	// +kubebuilder:default:=1
-	Replicas int `json:"replicas,omitempty"`
+	Replicas int32 `json:"replicas,omitempty"`
 
 	// https://book.kubebuilder.io/reference/markers/crd-validation.html
 }
 
 // SimpleOperatorStatus defines the observed state of SimpleOperator
 type SimpleOperatorStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// Indicates the current state of `simpleoperator`. Possible values: TODO
+	State string `json:"state"`
+
+	// Shows current number of replicas
+	AvabilableReplicas int32 `json:"availableReplicas"`
+
+	// Indicates the last time, when the `simpleoperator` has changed on resource
+	LastUpdated string `json:"lastUpdated"`
 }
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
+//+kubebuilder:resource:shortName=so
 
 // SimpleOperator is the Schema for the simpleoperators API
 type SimpleOperator struct {
