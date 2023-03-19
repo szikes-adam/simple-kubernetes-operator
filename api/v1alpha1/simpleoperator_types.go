@@ -28,7 +28,7 @@ const (
 	FailedToUpdateChange = "FailedToUpdateChange"
 	Reconciling          = "Reconciling"
 	Reconciled           = "Reconciled"
-	Deleting             = "Deleting"
+	Deleted              = "Deleted"
 	FailedToDelete       = "FailedToDelete"
 )
 

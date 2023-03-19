@@ -66,30 +66,47 @@ func (r *SimpleOperatorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	sor := &sov1alpha1.SimpleOperator{}
 	if err := r.Get(ctx, req.NamespacedName, sor); err != nil {
+
 		if errors.IsNotFound(err) {
-			log.Info("simpleoperator resource is NOT found")
+			log.Info("simpleoperator resource does NOT exist in CR")
+
+			deploy := CreateDeleteDeployment(req)
+			if err := r.Delete(ctx, deploy); err != nil && !errors.IsNotFound(err) {
+				log.Error(err, "unable to delete deployment")
+				return ctrl.Result{}, err
+			}
+
 			return ctrl.Result{}, nil
+
+		} else {
+			log.Error(err, "unable to fetch simpleoperator resource")
 		}
-		log.Error(err, "unable to fetch simpleoperator resource")
-		return ctrl.Result{}, err //client.IgnoreNotFound(err)
+
+		return ctrl.Result{}, err
 	}
 
-	log.Info("simpleoperator resource is found")
+	log.Info("simpleoperator resource exists in CR")
 
 	var latestErr error = nil
 	var latestRes ctrl.Result = ctrl.Result{}
 
 	sor.Status.LastUpdated = ReadTimeInRFC3339()
+	sor.Status.DeploymentState = sov1alpha1.Reconciled
+	sor.Status.ServiceState = sov1alpha1.Reconciled
+	sor.Status.IngressState = sov1alpha1.Reconciled
+	sor.Status.DeploymentErrorMsg = ""
+	sor.Status.ServiceErrorMsg = ""
+	sor.Status.IngressErrorMsg = ""
 
 	// check deployment
-	sor.Status.DeploymentState = sov1alpha1.Reconciled
-	sor.Status.DeploymentErrorMsg = ""
 
 	currentDeploy := &appsv1.Deployment{}
 	objectKey := types.NamespacedName{Name: Name, Namespace: req.Namespace}
 	if latestErr := r.Get(ctx, objectKey, currentDeploy); latestErr == nil {
+
 		if *currentDeploy.Spec.Replicas != sor.Spec.Replicas &&
 			currentDeploy.Spec.Template.Spec.Containers[0].Image != sor.Spec.Image {
+
 			log.Info("deployment needs to be updated by the new simpleoperator resource")
 
 			expected := CreateExpectedDeployment(sor)
@@ -101,26 +118,38 @@ func (r *SimpleOperatorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 				log.Error(latestErr, "unable to update")
 				sor.Status.DeploymentState = sov1alpha1.FailedToUpdateChange
 			}
+
 		} else if currentDeploy.Status.AvailableReplicas != sor.Spec.Replicas {
 			log.Info("deployment is reconciling")
 			sor.Status.DeploymentState = sov1alpha1.Reconciling
 			latestRes = ctrl.Result{RequeueAfter: time.Second * 3}
 		}
+
 		sor.Status.AvabilableReplicas = currentDeploy.Status.AvailableReplicas
+
 	} else {
 		if errors.IsNotFound(latestErr) {
+
 			log.Info("deployment resource is NOT found, create it")
 
-			expected := CreateExpectedDeployment(sor)
-			if latestErr := r.Create(ctx, expected); latestErr == nil {
+			deploy := CreateExpectedDeployment(sor)
+			if latestErr := r.Create(ctx, deploy); latestErr == nil {
 				log.Info("deployment is created")
 				sor.Status.DeploymentState = sov1alpha1.Creating
+
+				// SetControllerReference sets owner as a Controller OwnerReference on owned.
+				// This is used for garbage collection of the owned object and for
+				// reconciling the owner object on changes to owned (with a Watch + EnqueueRequestForOwner).
+				// Since only one OwnerReference can be a controller, it returns an error if
+				// there is another OwnerReference with Controller flag set.
+				//ctrl.SetControllerReference()
 				latestRes = ctrl.Result{RequeueAfter: time.Second * 3}
-			} else {
+			} else if !errors.IsAlreadyExists(latestErr) {
 				log.Error(latestErr, "unable to create the expected deployment")
 				sor.Status.DeploymentState = sov1alpha1.FailedToCreate
 				sor.Status.DeploymentErrorMsg = latestErr.Error()
 			}
+
 		} else {
 			sor.Status.DeploymentState = sov1alpha1.InternalError
 			sor.Status.DeploymentErrorMsg = latestErr.Error()
@@ -149,6 +178,15 @@ func (r *SimpleOperatorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&sov1alpha1.SimpleOperator{}).
 		Complete(r)
+}
+
+func CreateDeleteDeployment(req ctrl.Request) *appsv1.Deployment {
+	return &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      Name,
+			Namespace: req.Namespace,
+		},
+	}
 }
 
 func CreateExpectedDeployment(sor *sov1alpha1.SimpleOperator) *appsv1.Deployment {

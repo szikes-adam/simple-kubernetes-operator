@@ -136,6 +136,18 @@ Reference:
 
 [kubebuilder - Adding a new API](https://book.kubebuilder.io/cronjob-tutorial/new-api.html)
 
+### Operator
+
+Reference:
+
+[kubernetes - Operator Pattern](https://kubernetes.io/docs/concepts/extend-kubernetes/operator/)
+
+[kubernetes - Custom Resource](https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/)
+
+[The Cluster API Book - Implementer's Guide](https://cluster-api.sigs.k8s.io/developer/providers/implementers-guide/overview.html)
+
+[Kubernetes: What is "reconciliation"?](https://speakerdeck.com/thockin/kubernetes-what-is-reconciliation)
+
 ### GitHub Actions
 
 ### CI
