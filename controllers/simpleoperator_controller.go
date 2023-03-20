@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -39,7 +40,8 @@ import (
 	sov1alpha1 "github.com/szikes-adam/simple-kubernetes-operator/api/v1alpha1"
 )
 
-const Name = "so-resource"
+const resourceName = "so-resource"
+const finalizerName = "simpleoperator.szikes.io/finalizer"
 
 // SimpleOperatorReconciler reconciles a SimpleOperator object
 type SimpleOperatorReconciler struct {
@@ -71,10 +73,27 @@ func (r *SimpleOperatorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		if errors.IsNotFound(err) {
 			log.Info("simpleoperator resource does NOT exist in CR")
 
-			deploy := CreateMetaDeployment(req)
-			if err := r.Delete(ctx, deploy); err != nil && !errors.IsNotFound(err) {
-				log.Error(err, "unable to delete deployment")
-				return ctrl.Result{}, err
+			currentDeploy := &appsv1.Deployment{}
+			objectKey := types.NamespacedName{Name: resourceName, Namespace: req.Namespace}
+			if err := r.Get(ctx, objectKey, currentDeploy); err == nil {
+
+				if !currentDeploy.ObjectMeta.DeletionTimestamp.IsZero() {
+					log.Info("marked for deletion")
+
+					if err := r.Delete(ctx, currentDeploy); err != nil && !errors.IsNotFound(err) {
+						log.Error(err, "unable to delete deployment")
+						return ctrl.Result{RequeueAfter: time.Second * 3}, err
+					}
+
+					controllerutil.RemoveFinalizer(currentDeploy, finalizerName)
+
+					if err := r.Update(ctx, currentDeploy); err != nil {
+						log.Error(err, "unable to update")
+						return ctrl.Result{}, err
+					}
+				} else {
+					log.Error(nil, "dangling resource")
+				}
 			}
 
 			return ctrl.Result{}, nil
@@ -102,7 +121,7 @@ func (r *SimpleOperatorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// check deployment
 
 	currentDeploy := &appsv1.Deployment{}
-	objectKey := types.NamespacedName{Name: Name, Namespace: req.Namespace}
+	objectKey := types.NamespacedName{Name: resourceName, Namespace: req.Namespace}
 	if latestErr := r.Get(ctx, objectKey, currentDeploy); latestErr == nil {
 
 		if *currentDeploy.Spec.Replicas != sor.Spec.Replicas ||
@@ -136,6 +155,8 @@ func (r *SimpleOperatorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 				log.Error(latestErr, "unable to set reference")
 				return latestRes, latestErr
 			}
+
+			controllerutil.AddFinalizer(deploy, finalizerName)
 
 			if latestErr := r.Create(ctx, deploy); latestErr == nil {
 				log.Info("deployment is created")
@@ -185,7 +206,7 @@ func (r *SimpleOperatorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 func CreateMetaDeployment(req ctrl.Request) *appsv1.Deployment {
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      Name,
+			Name:      resourceName,
 			Namespace: req.Namespace,
 		},
 	}
@@ -194,22 +215,22 @@ func CreateMetaDeployment(req ctrl.Request) *appsv1.Deployment {
 func CreateExpectedDeployment(sor *sov1alpha1.SimpleOperator) *appsv1.Deployment {
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      Name,
+			Name:      resourceName,
 			Namespace: sor.Namespace,
 		},
 		Spec: appsv1.DeploymentSpec{
 			Selector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{"app": Name},
+				MatchLabels: map[string]string{"app": resourceName},
 			},
 			Replicas: &sor.Spec.Replicas,
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{"app": Name},
+					Labels: map[string]string{"app": resourceName},
 				},
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
 						{
-							Name:  Name,
+							Name:  resourceName,
 							Image: sor.Spec.Image,
 							Ports: []corev1.ContainerPort{
 								{
