@@ -65,52 +65,52 @@ type SimpleOperatorReconciler struct {
 func (r *SimpleOperatorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 
-	log.Info("++++++++++++++ called Reconcile ++++++++++++++")
+	log.V(1).Info("Reconciling")
 
 	sor := &sov1alpha1.SimpleOperator{}
 	if err := r.Get(ctx, req.NamespacedName, sor); err != nil {
 
 		if errors.IsNotFound(err) {
-			log.Info("simpleoperator resource does NOT exist in CR")
+			log.V(1).Info("Custom resource object does NOT exist")
 
 			currentDeploy := &appsv1.Deployment{}
 			objectKey := types.NamespacedName{Name: resourceName, Namespace: req.Namespace}
 			if err := r.Get(ctx, objectKey, currentDeploy); err == nil {
 
 				if !currentDeploy.ObjectMeta.DeletionTimestamp.IsZero() {
-					log.Info("marked for deletion")
+					log.V(0).Info("Deployed object marked for deletion, deleting it", "deletionTimestamp", currentDeploy.ObjectMeta.DeletionTimestamp)
 
 					if err := r.Delete(ctx, currentDeploy); err != nil && !errors.IsNotFound(err) {
-						log.Error(err, "unable to delete deployment")
+						log.Error(err, "Unable to delete deployment")
 						return ctrl.Result{RequeueAfter: time.Second * 3}, err
 					}
 
 					controllerutil.RemoveFinalizer(currentDeploy, finalizerName)
 
 					if err := r.Update(ctx, currentDeploy); err != nil {
-						log.Error(err, "unable to update")
+						log.Error(err, "Unable to update")
 						return ctrl.Result{}, err
 					}
 				} else {
-					log.Error(nil, "dangling resource")
+					log.Error(nil, "Dangling deployed object")
 				}
 			}
 
 			return ctrl.Result{}, nil
 
 		} else {
-			log.Error(err, "unable to fetch simpleoperator resource")
+			log.Error(err, "Unable to fetch simpleoperator resource")
 		}
 
 		return ctrl.Result{}, err
 	}
 
-	log.Info("simpleoperator resource exists in CR")
+	log.V(1).Info("Custom resource object exists")
 
 	var latestErr error = nil
 	var latestRes ctrl.Result = ctrl.Result{RequeueAfter: time.Second * 3}
 
-	sor.Status.LastUpdated = ReadTimeInRFC3339()
+	sor.Status.LastUpdated = readTimeInRFC3339()
 	sor.Status.DeploymentState = sov1alpha1.Reconciled
 	sor.Status.ServiceState = sov1alpha1.Reconciled
 	sor.Status.IngressState = sov1alpha1.Reconciled
@@ -127,19 +127,18 @@ func (r *SimpleOperatorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		if *currentDeploy.Spec.Replicas != sor.Spec.Replicas ||
 			currentDeploy.Spec.Template.Spec.Containers[0].Image != sor.Spec.Image {
 
-			log.Info("deployment mismatches to simpleoperator resource")
+			log.V(0).Info("Deployment mismatches to custom resource object, updating it", "expectedReplicas", sor.Spec.Replicas, "setReplicas", *currentDeploy.Spec.Replicas, "expectedImage", sor.Spec.Image, "setImage", currentDeploy.Spec.Template.Spec.Containers[0].Image)
 
-			expected := CreateExpectedDeployment(sor)
+			expected := createExpectedDeployment(sor)
 			if latestErr := r.Update(ctx, expected); latestErr == nil {
-				log.Info("deployment is updating")
 				sor.Status.DeploymentState = sov1alpha1.UpdatingChange
 			} else {
-				log.Error(latestErr, "unable to update")
+				log.Error(latestErr, "Unable to update")
 				sor.Status.DeploymentState = sov1alpha1.FailedToUpdateChange
 			}
 
 		} else if currentDeploy.Status.AvailableReplicas != sor.Spec.Replicas {
-			log.Info("deployment is reconciling")
+			log.V(0).Info("Deployment is reconciling", "expectedReplicas", sor.Spec.Replicas, "currentReplicas", currentDeploy.Status.AvailableReplicas)
 			sor.Status.DeploymentState = sov1alpha1.Reconciling
 		}
 
@@ -148,22 +147,21 @@ func (r *SimpleOperatorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	} else {
 		if errors.IsNotFound(latestErr) {
 
-			log.Info("deployment resource is NOT found, create it")
+			log.V(0).Info("Deployment is NOT found, creating it")
 
-			deploy := CreateExpectedDeployment(sor)
+			deploy := createExpectedDeployment(sor)
 			if latestErr = ctrl.SetControllerReference(sor, deploy, r.Scheme); latestErr != nil {
-				log.Error(latestErr, "unable to set reference")
+				log.Error(latestErr, "Unable to set reference")
 				return latestRes, latestErr
 			}
 
 			controllerutil.AddFinalizer(deploy, finalizerName)
 
 			if latestErr := r.Create(ctx, deploy); latestErr == nil {
-				log.Info("deployment is created")
 				sor.Status.DeploymentState = sov1alpha1.Creating
 
 			} else if !errors.IsAlreadyExists(latestErr) {
-				log.Error(latestErr, "unable to create the expected deployment")
+				log.Error(latestErr, "Unable to create the expected deployment")
 				sor.Status.DeploymentState = sov1alpha1.FailedToCreate
 				sor.Status.DeploymentErrorMsg = latestErr.Error()
 			}
@@ -171,7 +169,7 @@ func (r *SimpleOperatorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		} else {
 			sor.Status.DeploymentState = sov1alpha1.InternalError
 			sor.Status.DeploymentErrorMsg = latestErr.Error()
-			log.Error(latestErr, "unable to fetch deployment resource")
+			log.Error(latestErr, "Unable to fetch deployment resource")
 		}
 	}
 
@@ -180,7 +178,7 @@ func (r *SimpleOperatorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	if err := r.Status().Update(ctx, sor); err != nil {
-		log.Info("Error when updating status. Let's try again")
+		log.V(1).Info("Error when updating status, trying again")
 		return ctrl.Result{RequeueAfter: time.Second * 3}, err
 	}
 
@@ -203,7 +201,27 @@ func (r *SimpleOperatorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func CreateMetaDeployment(req ctrl.Request) *appsv1.Deployment {
+// 		WithEventFilter(myPredicate()).
+// func myPredicate() predicate.Predicate {
+// 	return predicate.Funcs{
+// 		CreateFunc: func(e event.CreateEvent) bool {
+// 			return true
+// 		},
+// 		UpdateFunc: func(e event.UpdateEvent) bool {
+// 			if _, ok := e.ObjectOld.(*core.Pod); !ok {
+// 				// Is Not Pod
+// 				return e.ObjectOld.GetGeneration() != e.ObjectNew.GetGeneration()
+// 			}
+// 			// Is Pod
+// 			return false
+// 		},
+// 		DeleteFunc: func(e event.DeleteEvent) bool {
+// 			return !e.DeleteStateUnknown
+// 		},
+// 	}
+// }
+
+func createMetaDeployment(req ctrl.Request) *appsv1.Deployment {
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      resourceName,
@@ -212,7 +230,7 @@ func CreateMetaDeployment(req ctrl.Request) *appsv1.Deployment {
 	}
 }
 
-func CreateExpectedDeployment(sor *sov1alpha1.SimpleOperator) *appsv1.Deployment {
+func createExpectedDeployment(sor *sov1alpha1.SimpleOperator) *appsv1.Deployment {
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      resourceName,
@@ -245,7 +263,7 @@ func CreateExpectedDeployment(sor *sov1alpha1.SimpleOperator) *appsv1.Deployment
 	}
 }
 
-func ReadTimeInRFC3339() string {
+func readTimeInRFC3339() string {
 	RFC3339dateLayout := "2006-01-02T15:04:05Z07:00"
 	t := metav1.Now()
 	return t.Format(RFC3339dateLayout)
