@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -34,7 +35,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 
-	//networkingv1 "k8s.io/api/networking/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	sov1alpha1 "github.com/szikes-adam/simple-kubernetes-operator/api/v1alpha1"
@@ -42,6 +43,7 @@ import (
 
 const resourceName = "so-resource"
 const finalizerName = "simpleoperator.szikes.io/finalizer"
+const secretName = "tls-cert"
 
 // SimpleOperatorReconciler reconciles a SimpleOperator object
 type SimpleOperatorReconciler struct {
@@ -107,80 +109,43 @@ func (r *SimpleOperatorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	log.V(1).Info("Custom resource object exists")
 
+	sor.Status.LastUpdated = readTimeInRFC3339()
+
 	var latestErr error = nil
 	var latestRes ctrl.Result = ctrl.Result{RequeueAfter: time.Second * 3}
 
-	sor.Status.LastUpdated = readTimeInRFC3339()
-	sor.Status.DeploymentState = sov1alpha1.Reconciled
-	sor.Status.ServiceState = sov1alpha1.Reconciled
-	sor.Status.IngressState = sov1alpha1.Reconciled
-	sor.Status.DeploymentErrorMsg = ""
-	sor.Status.ServiceErrorMsg = ""
-	sor.Status.IngressErrorMsg = ""
+	latestRes, latestErr, sor.Status.DeploymentState, sor.Status.DeploymentErrorMsg = reconcileBasedOnCustomResourceObject(r, &log, ctx, req, sor, &appsv1.Deployment{}, createMetaDeployment(req), createExpectedDeployment(sor))
 
-	// check deployment
-
-	currentDeploy := &appsv1.Deployment{}
-	objectKey := types.NamespacedName{Name: resourceName, Namespace: req.Namespace}
-	if latestErr := r.Get(ctx, objectKey, currentDeploy); latestErr == nil {
-
-		if *currentDeploy.Spec.Replicas != sor.Spec.Replicas ||
-			currentDeploy.Spec.Template.Spec.Containers[0].Image != sor.Spec.Image {
-
-			log.V(0).Info("Deployment mismatches to custom resource object, updating it", "expectedReplicas", sor.Spec.Replicas, "setReplicas", *currentDeploy.Spec.Replicas, "expectedImage", sor.Spec.Image, "setImage", currentDeploy.Spec.Template.Spec.Containers[0].Image)
-
-			expected := createExpectedDeployment(sor)
-			if latestErr := r.Update(ctx, expected); latestErr == nil {
-				sor.Status.DeploymentState = sov1alpha1.UpdatingChange
-			} else {
-				log.Error(latestErr, "Unable to update")
-				sor.Status.DeploymentState = sov1alpha1.FailedToUpdateChange
-			}
-
-		} else if currentDeploy.Status.AvailableReplicas != sor.Spec.Replicas {
-			log.V(0).Info("Deployment is reconciling", "expectedReplicas", sor.Spec.Replicas, "currentReplicas", currentDeploy.Status.AvailableReplicas)
-			sor.Status.DeploymentState = sov1alpha1.Reconciling
-		}
-
-		sor.Status.AvabilableReplicas = currentDeploy.Status.AvailableReplicas
-
-	} else {
-		if errors.IsNotFound(latestErr) {
-
-			log.V(0).Info("Deployment is NOT found, creating it")
-
-			deploy := createExpectedDeployment(sor)
-			if latestErr = ctrl.SetControllerReference(sor, deploy, r.Scheme); latestErr != nil {
-				log.Error(latestErr, "Unable to set reference")
-				return latestRes, latestErr
-			}
-
-			controllerutil.AddFinalizer(deploy, finalizerName)
-
-			if latestErr := r.Create(ctx, deploy); latestErr == nil {
-				sor.Status.DeploymentState = sov1alpha1.Creating
-
-			} else if !errors.IsAlreadyExists(latestErr) {
-				log.Error(latestErr, "Unable to create the expected deployment")
-				sor.Status.DeploymentState = sov1alpha1.FailedToCreate
-				sor.Status.DeploymentErrorMsg = latestErr.Error()
-			}
-
-		} else {
-			sor.Status.DeploymentState = sov1alpha1.InternalError
-			sor.Status.DeploymentErrorMsg = latestErr.Error()
-			log.Error(latestErr, "Unable to fetch deployment resource")
-		}
-	}
-
-	if sor.Status.DeploymentState == sov1alpha1.Reconciled {
-		latestRes = ctrl.Result{}
+	if latestErr != nil {
+		return latestRes, latestErr
 	}
 
 	if err := r.Status().Update(ctx, sor); err != nil {
 		log.V(1).Info("Error when updating status, trying again")
 		return ctrl.Result{RequeueAfter: time.Second * 3}, err
 	}
+
+	// latestRes, latestErr, sor.Status.ServiceState, sor.Status.ServiceErrorMsg = reconcileBasedOnCustomResourceObject(r, &log, ctx, req, sor, &corev1.Service{}, createMetaService(req), createExpectedService(sor))
+
+	// if latestErr != nil {
+	// 	return latestRes, latestErr
+	// }
+
+	// if err := r.Status().Update(ctx, sor); err != nil {
+	// 	log.V(1).Info("Error when updating status, trying again")
+	// 	return ctrl.Result{RequeueAfter: time.Second * 3}, err
+	// }
+
+	// latestRes, latestErr, sor.Status.IngressState, sor.Status.IngressErrorMsg = reconcileBasedOnCustomResourceObject(r, &log, ctx, req, sor, &networkingv1.Ingress{}, createMetaIngress(req), createExpectedIngress(sor))
+
+	// if latestErr != nil {
+	// 	return latestRes, latestErr
+	// }
+
+	// if err := r.Status().Update(ctx, sor); err != nil {
+	// 	log.V(1).Info("Error when updating status, trying again")
+	// 	return ctrl.Result{RequeueAfter: time.Second * 3}, err
+	// }
 
 	return latestRes, latestErr
 }
@@ -198,6 +163,8 @@ func (r *SimpleOperatorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&sov1alpha1.SimpleOperator{}).
 		Owns(&appsv1.Deployment{}).
+		Owns(&corev1.Service{}).
+		Owns(&networkingv1.Ingress{}).
 		Complete(r)
 }
 
@@ -220,6 +187,126 @@ func (r *SimpleOperatorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 // 		},
 // 	}
 // }
+
+func getUnhandledObjectTypeError(obj interface{}) error {
+	return fmt.Errorf("Unhandled resource object type: %T", obj)
+}
+
+func compareSides(obj interface{}, sor *sov1alpha1.SimpleOperator) (bool, bool) {
+	var isExpectationsMatch bool = true
+	var isStatusMatch bool = true
+
+	switch obj.(type) {
+	case *appsv1.Deployment:
+		currentDeploy := obj.(*appsv1.Deployment)
+		isExpectationsMatch = *currentDeploy.Spec.Replicas == sor.Spec.Replicas && currentDeploy.Spec.Template.Spec.Containers[0].Image == sor.Spec.Image
+		isStatusMatch = currentDeploy.Status.AvailableReplicas == sor.Spec.Replicas
+	case *corev1.Service:
+	case *networkingv1.Ingress:
+
+	}
+	return isExpectationsMatch, isStatusMatch
+}
+
+func logExpectationMismatch(obj interface{}, log *logr.Logger, sor *sov1alpha1.SimpleOperator) {
+	switch obj.(type) {
+	case *appsv1.Deployment:
+		currentDeploy := obj.(*appsv1.Deployment)
+		log.V(0).Info("Deployment mismatches to custom resource object, updating it", "expectedReplicas", sor.Spec.Replicas, "setReplicas", *currentDeploy.Spec.Replicas, "expectedImage", sor.Spec.Image, "setImage", currentDeploy.Spec.Template.Spec.Containers[0].Image)
+	}
+}
+
+func logStatusMismatch(obj interface{}, log *logr.Logger, sor *sov1alpha1.SimpleOperator) {
+	switch obj.(type) {
+	case *appsv1.Deployment:
+		currentDeploy := obj.(*appsv1.Deployment)
+		log.V(0).Info("Deployment is reconciling", "expectedReplicas", sor.Spec.Replicas, "currentReplicas", currentDeploy.Status.AvailableReplicas)
+	}
+}
+
+func updateCustomResourceStatus(obj interface{}, sor *sov1alpha1.SimpleOperator) {
+	switch obj.(type) {
+	case *appsv1.Deployment:
+		currentDeploy := obj.(*appsv1.Deployment)
+		sor.Status.AvabilableReplicas = currentDeploy.Status.AvailableReplicas
+	}
+}
+
+func reconcileBasedOnCustomResourceObject(r *SimpleOperatorReconciler, log *logr.Logger, ctx context.Context, req ctrl.Request, sor *sov1alpha1.SimpleOperator, emptyObject client.Object, metaObject client.Object, expectedObject client.Object) (ctrl.Result, error, string, string) {
+	var latestErr error = nil
+	var latestRes ctrl.Result = ctrl.Result{RequeueAfter: time.Second * 3}
+	var statusState string = sov1alpha1.Reconciled
+	var statusErrMsg string = ""
+
+	currentObj := emptyObject
+
+	switch currentObj.(type) {
+	case *appsv1.Deployment:
+	case *corev1.Service:
+	case *networkingv1.Ingress:
+	default:
+		return ctrl.Result{}, errors.NewInternalError(getUnhandledObjectTypeError(currentObj)), sov1alpha1.InternalError, getUnhandledObjectTypeError(currentObj).Error()
+	}
+
+	objectKey := types.NamespacedName{Name: resourceName, Namespace: req.Namespace}
+	if latestErr := r.Get(ctx, objectKey, currentObj); latestErr == nil {
+
+		isExpectationsMatch, isStatusMatch := compareSides(currentObj, sor)
+
+		if !isExpectationsMatch {
+
+			logExpectationMismatch(currentObj, log, sor)
+
+			expected := createExpectedDeployment(sor)
+			if latestErr := r.Update(ctx, expected); latestErr == nil {
+				statusState = sov1alpha1.UpdatingChange
+			} else {
+				log.Error(latestErr, "Unable to update")
+				statusState = sov1alpha1.FailedToUpdateChange
+			}
+
+		} else if !isStatusMatch {
+			logStatusMismatch(currentObj, log, sor)
+			statusState = sov1alpha1.Reconciling
+		}
+
+		updateCustomResourceStatus(currentObj, sor)
+
+	} else {
+		if errors.IsNotFound(latestErr) {
+
+			log.V(0).Info("Deployment is NOT found, creating it")
+
+			deploy := createExpectedDeployment(sor)
+			if latestErr = ctrl.SetControllerReference(sor, deploy, r.Scheme); latestErr != nil {
+				log.Error(latestErr, "Unable to set reference")
+				return latestRes, latestErr, statusState, statusErrMsg
+			}
+
+			controllerutil.AddFinalizer(deploy, finalizerName)
+
+			if latestErr := r.Create(ctx, deploy); latestErr == nil {
+				statusState = sov1alpha1.Creating
+
+			} else if !errors.IsAlreadyExists(latestErr) {
+				log.Error(latestErr, "Unable to create the expected deployment")
+				statusState = sov1alpha1.FailedToCreate
+				statusErrMsg = latestErr.Error()
+			}
+
+		} else {
+			statusState = sov1alpha1.InternalError
+			statusErrMsg = latestErr.Error()
+			log.Error(latestErr, "Unable to fetch deployment resource")
+		}
+	}
+
+	if statusState == sov1alpha1.Reconciled {
+		latestRes = ctrl.Result{}
+	}
+
+	return latestRes, latestErr, statusState, statusErrMsg
+}
 
 func createMetaDeployment(req ctrl.Request) *appsv1.Deployment {
 	return &appsv1.Deployment{
@@ -253,6 +340,89 @@ func createExpectedDeployment(sor *sov1alpha1.SimpleOperator) *appsv1.Deployment
 							Ports: []corev1.ContainerPort{
 								{
 									ContainerPort: 80,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func createMetaService(req ctrl.Request) *corev1.Service {
+	return &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      resourceName,
+			Namespace: req.Namespace,
+		},
+	}
+}
+
+func createExpectedService(sor *sov1alpha1.SimpleOperator) *corev1.Service {
+	return &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      resourceName,
+			Namespace: sor.Namespace,
+		},
+		Spec: corev1.ServiceSpec{
+			Selector: map[string]string{"app": resourceName},
+			Ports: []corev1.ServicePort{
+				{
+					Port: 80,
+				},
+			},
+		},
+	}
+}
+
+func createMetaIngress(req ctrl.Request) *networkingv1.Ingress {
+	return &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      resourceName,
+			Namespace: req.Namespace,
+		},
+	}
+}
+
+func createExpectedIngress(sor *sov1alpha1.SimpleOperator) *networkingv1.Ingress {
+	pathType := networkingv1.PathType("Prefix")
+	return &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      resourceName,
+			Namespace: sor.Namespace,
+			Annotations: map[string]string{
+				"cert-manager.io/cluster-issuer":             "letsencrypt-staging",
+				"kubernetes.io/ingress.class":                "nginx",
+				"nginx.ingress.kubernetes.io/rewrite-target": "/$1",
+			},
+		},
+		Spec: networkingv1.IngressSpec{
+			TLS: []networkingv1.IngressTLS{
+				{
+					Hosts: []string{
+						sor.Spec.Host,
+					},
+					SecretName: secretName,
+				},
+			},
+			Rules: []networkingv1.IngressRule{
+				{
+					Host: sor.Spec.Host,
+					IngressRuleValue: networkingv1.IngressRuleValue{
+						HTTP: &networkingv1.HTTPIngressRuleValue{
+							Paths: []networkingv1.HTTPIngressPath{
+								{
+									PathType: &pathType,
+									Path:     "/",
+									Backend: networkingv1.IngressBackend{
+										Service: &networkingv1.IngressServiceBackend{
+											Name: resourceName,
+											Port: networkingv1.ServiceBackendPort{
+												Number: 80,
+											},
+										},
+									},
 								},
 							},
 						},
