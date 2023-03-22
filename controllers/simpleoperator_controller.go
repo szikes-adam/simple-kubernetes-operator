@@ -109,23 +109,16 @@ func (r *SimpleOperatorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	log.V(1).Info("Custom resource object exists")
 
-	sor.Status.LastUpdated = readTimeInRFC3339()
-
 	var latestErr error = nil
 	var latestRes ctrl.Result = ctrl.Result{RequeueAfter: time.Second * 3}
 
-	latestRes, latestErr, sor.Status.DeploymentState, sor.Status.DeploymentErrorMsg = reconcileBasedOnCustomResourceObject(r, &log, ctx, req, sor, &appsv1.Deployment{}, createMetaDeployment(req), createExpectedDeployment(sor))
+	latestRes, latestErr = reconcileBasedOnCustomResourceObject(r, &log, ctx, req, sor, &appsv1.Deployment{}, createMetaDeployment(req), createExpectedDeployment(sor))
 
 	if latestErr != nil {
 		return latestRes, latestErr
 	}
 
-	if err := r.Status().Update(ctx, sor); err != nil {
-		log.V(1).Info("Error when updating status, trying again")
-		return ctrl.Result{RequeueAfter: time.Second * 3}, err
-	}
-
-	// latestRes, latestErr, sor.Status.ServiceState, sor.Status.ServiceErrorMsg = reconcileBasedOnCustomResourceObject(r, &log, ctx, req, sor, &corev1.Service{}, createMetaService(req), createExpectedService(sor))
+	// latestRes, latestErr = reconcileBasedOnCustomResourceObject(r, &log, ctx, req, sor, &corev1.Service{}, createMetaService(req), createExpectedService(sor))
 
 	// if latestErr != nil {
 	// 	return latestRes, latestErr
@@ -136,7 +129,7 @@ func (r *SimpleOperatorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// 	return ctrl.Result{RequeueAfter: time.Second * 3}, err
 	// }
 
-	// latestRes, latestErr, sor.Status.IngressState, sor.Status.IngressErrorMsg = reconcileBasedOnCustomResourceObject(r, &log, ctx, req, sor, &networkingv1.Ingress{}, createMetaIngress(req), createExpectedIngress(sor))
+	// latestRes, latestErr = reconcileBasedOnCustomResourceObject(r, &log, ctx, req, sor, &networkingv1.Ingress{}, createMetaIngress(req), createExpectedIngress(sor))
 
 	// if latestErr != nil {
 	// 	return latestRes, latestErr
@@ -232,7 +225,32 @@ func updateCustomResourceStatus(obj interface{}, sor *sov1alpha1.SimpleOperator)
 	}
 }
 
-func reconcileBasedOnCustomResourceObject(r *SimpleOperatorReconciler, log *logr.Logger, ctx context.Context, req ctrl.Request, sor *sov1alpha1.SimpleOperator, emptyObject client.Object, metaObject client.Object, expectedObject client.Object) (ctrl.Result, error, string, string) {
+func threeWayStatusMerge(obj interface{}, sor *sov1alpha1.SimpleOperator, statusState string, statusErrMsg string) *sov1alpha1.SimpleOperatorStatus {
+	status := sov1alpha1.SimpleOperatorStatus{
+		LastUpdated:        readTimeInRFC3339(),
+		DeploymentState:    sor.Status.DeploymentState,
+		DeploymentErrorMsg: sor.Status.DeploymentErrorMsg,
+		ServiceState:       sor.Status.ServiceState,
+		ServiceErrorMsg:    sor.Status.ServiceErrorMsg,
+		IngressState:       sor.Status.IngressState,
+		IngressErrorMsg:    sor.Status.IngressErrorMsg,
+	}
+
+	switch obj.(type) {
+	case *appsv1.Deployment:
+		status.DeploymentState = statusState
+		status.DeploymentErrorMsg = statusErrMsg
+	case *corev1.Service:
+		status.ServiceState = statusState
+		status.ServiceErrorMsg = statusErrMsg
+	case *networkingv1.Ingress:
+		status.IngressState = statusState
+		status.IngressErrorMsg = statusErrMsg
+	}
+	return &status
+}
+
+func reconcileBasedOnCustomResourceObject(r *SimpleOperatorReconciler, log *logr.Logger, ctx context.Context, req ctrl.Request, sor *sov1alpha1.SimpleOperator, emptyObject client.Object, metaObject client.Object, expectedObject client.Object) (ctrl.Result, error) {
 	var latestErr error = nil
 	var latestRes ctrl.Result = ctrl.Result{RequeueAfter: time.Second * 3}
 	var statusState string = sov1alpha1.Reconciled
@@ -245,7 +263,7 @@ func reconcileBasedOnCustomResourceObject(r *SimpleOperatorReconciler, log *logr
 	case *corev1.Service:
 	case *networkingv1.Ingress:
 	default:
-		return ctrl.Result{}, errors.NewInternalError(getUnhandledObjectTypeError(currentObj)), sov1alpha1.InternalError, getUnhandledObjectTypeError(currentObj).Error()
+		return ctrl.Result{}, errors.NewInternalError(getUnhandledObjectTypeError(currentObj))
 	}
 
 	objectKey := types.NamespacedName{Name: resourceName, Namespace: req.Namespace}
@@ -280,7 +298,7 @@ func reconcileBasedOnCustomResourceObject(r *SimpleOperatorReconciler, log *logr
 			deploy := createExpectedDeployment(sor)
 			if latestErr = ctrl.SetControllerReference(sor, deploy, r.Scheme); latestErr != nil {
 				log.Error(latestErr, "Unable to set reference")
-				return latestRes, latestErr, statusState, statusErrMsg
+				return latestRes, latestErr
 			}
 
 			controllerutil.AddFinalizer(deploy, finalizerName)
@@ -305,7 +323,23 @@ func reconcileBasedOnCustomResourceObject(r *SimpleOperatorReconciler, log *logr
 		latestRes = ctrl.Result{}
 	}
 
-	return latestRes, latestErr, statusState, statusErrMsg
+	if latestErr != nil {
+		return latestRes, latestErr
+	}
+
+	if latestErr = r.Get(ctx, req.NamespacedName, sor); latestErr != nil {
+		log.Error(latestErr, "Unable to get so object")
+		return latestRes, latestErr
+	}
+
+	status := threeWayStatusMerge(emptyObject, sor, statusState, statusErrMsg)
+	sor.Status = *status
+
+	if latestErr := r.Status().Update(ctx, sor); latestErr != nil {
+		log.V(1).Info("Error when updating status, trying again")
+	}
+
+	return latestRes, latestErr
 }
 
 func createMetaDeployment(req ctrl.Request) *appsv1.Deployment {
