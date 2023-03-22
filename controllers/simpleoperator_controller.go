@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/banzaicloud/k8s-objectmatcher/patch"
 	"github.com/go-logr/logr"
 
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -185,28 +186,26 @@ func getUnhandledObjectTypeError(obj interface{}) error {
 	return fmt.Errorf("Unhandled resource object type: %T", obj)
 }
 
-func compareSides(obj interface{}, sor *sov1alpha1.SimpleOperator) (bool, bool) {
-	var isExpectationsMatch bool = true
+func logExpectationMismatch(obj interface{}, log *logr.Logger, sor *sov1alpha1.SimpleOperator) {
+	switch obj.(type) {
+	case *appsv1.Deployment:
+		currentDeploy := obj.(*appsv1.Deployment)
+		log.V(0).Info("Deployment mismatches, updating it", "expectedReplicas", sor.Spec.Replicas, "setReplicas", *currentDeploy.Spec.Replicas, "expectedImage", sor.Spec.Image, "setImage", currentDeploy.Spec.Template.Spec.Containers[0].Image)
+	}
+}
+
+func isStatusMatch(obj interface{}, sor *sov1alpha1.SimpleOperator) bool {
 	var isStatusMatch bool = true
 
 	switch obj.(type) {
 	case *appsv1.Deployment:
 		currentDeploy := obj.(*appsv1.Deployment)
-		isExpectationsMatch = *currentDeploy.Spec.Replicas == sor.Spec.Replicas && currentDeploy.Spec.Template.Spec.Containers[0].Image == sor.Spec.Image
 		isStatusMatch = currentDeploy.Status.AvailableReplicas == sor.Spec.Replicas
 	case *corev1.Service:
 	case *networkingv1.Ingress:
 
 	}
-	return isExpectationsMatch, isStatusMatch
-}
-
-func logExpectationMismatch(obj interface{}, log *logr.Logger, sor *sov1alpha1.SimpleOperator) {
-	switch obj.(type) {
-	case *appsv1.Deployment:
-		currentDeploy := obj.(*appsv1.Deployment)
-		log.V(0).Info("Deployment mismatches to custom resource object, updating it", "expectedReplicas", sor.Spec.Replicas, "setReplicas", *currentDeploy.Spec.Replicas, "expectedImage", sor.Spec.Image, "setImage", currentDeploy.Spec.Template.Spec.Containers[0].Image)
-	}
+	return isStatusMatch
 }
 
 func logStatusMismatch(obj interface{}, log *logr.Logger, sor *sov1alpha1.SimpleOperator) {
@@ -269,9 +268,16 @@ func reconcileBasedOnCustomResourceObject(r *SimpleOperatorReconciler, log *logr
 	objectKey := types.NamespacedName{Name: resourceName, Namespace: req.Namespace}
 	if latestErr := r.Get(ctx, objectKey, currentObj); latestErr == nil {
 
-		isExpectationsMatch, isStatusMatch := compareSides(currentObj, sor)
+		opts := []patch.CalculateOption{
+			patch.IgnoreStatusFields(),
+		}
 
-		if !isExpectationsMatch {
+		patchResult, latestErr := patch.DefaultPatchMaker.Calculate(currentObj.(runtime.Object), expectedObject.(runtime.Object), opts...)
+		if latestErr != nil {
+			return latestRes, latestErr
+		}
+
+		if !patchResult.IsEmpty() {
 
 			logExpectationMismatch(currentObj, log, sor)
 
@@ -283,7 +289,7 @@ func reconcileBasedOnCustomResourceObject(r *SimpleOperatorReconciler, log *logr
 				statusState = sov1alpha1.FailedToUpdateChange
 			}
 
-		} else if !isStatusMatch {
+		} else if !isStatusMatch(currentObj, sor) {
 			logStatusMismatch(currentObj, log, sor)
 			statusState = sov1alpha1.Reconciling
 		}
@@ -302,6 +308,11 @@ func reconcileBasedOnCustomResourceObject(r *SimpleOperatorReconciler, log *logr
 			}
 
 			controllerutil.AddFinalizer(deploy, finalizerName)
+
+			if err := patch.DefaultAnnotator.SetLastAppliedAnnotation(deploy); err != nil {
+				log.Error(err, "Unable to set LastAppliedAnnotation")
+				return latestRes, err
+			}
 
 			if latestErr := r.Create(ctx, deploy); latestErr == nil {
 				statusState = sov1alpha1.Creating
