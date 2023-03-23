@@ -121,17 +121,26 @@ func (r *SimpleOperatorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 	}
 
-	return reconcileBasedOnCustomObject(r, &log, ctx, req, sor, &appsv1.Deployment{}, createMetaDeployment(req), createExpectedDeployment(sor))
+	deployRes, deployErr := reconcileBasedOnCustomObject(r, &log, ctx, req, sor, &appsv1.Deployment{}, createExpectedDeployment(sor))
+	if deployErr != nil {
+		return deployRes, deployErr
+	}
 
-	// if res, err := reconcileBasedOnCustomObject(r, &log, ctx, req, sor, &appsv1.Deployment{}, createMetaDeployment(req), createExpectedDeployment(sor)); err != nil {
-	// 	return res, err
-	// }
+	svcRes, svcErr := reconcileBasedOnCustomObject(r, &log, ctx, req, sor, &corev1.Service{}, createExpectedService(sor))
+	if svcErr != nil {
+		if deployRes.RequeueAfter != 0 {
+			svcRes = deployRes
+		}
+		return svcRes, svcErr
+	}
 
-	// if res, err := reconcileBasedOnCustomObject(r, &log, ctx, req, sor, &corev1.Service{}, createMetaService(req), createExpectedService(sor)); err != nil {
-	// 	return res, err
-	// }
-
-	// return reconcileBasedOnCustomObject(r, &log, ctx, req, sor, &networkingv1.Ingress{}, createMetaIngress(req), createExpectedIngress(sor))
+	ingRes, ingErr := reconcileBasedOnCustomObject(r, &log, ctx, req, sor, &networkingv1.Ingress{}, createExpectedIngress(sor))
+	if deployRes.RequeueAfter != 0 {
+		ingRes = deployRes
+	} else if svcRes.RequeueAfter != 0 {
+		ingRes = svcRes
+	}
+	return ingRes, ingErr
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -167,14 +176,11 @@ func (r *SimpleOperatorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 func getObjctKind(obj interface{}) string {
 	switch obj.(type) {
 	case *appsv1.Deployment:
-		current := obj.(*appsv1.Deployment)
-		return current.Kind
+		return "Deployment"
 	case *corev1.Service:
-		current := obj.(*corev1.Service)
-		return current.Kind
+		return "Service"
 	case *networkingv1.Ingress:
-		current := obj.(*networkingv1.Ingress)
-		return current.Kind
+		return "Ingress"
 	}
 	return ""
 }
@@ -249,7 +255,7 @@ func threeWayStatusMerge(obj interface{}, sor *sov1alpha1.SimpleOperator, status
 	return &status
 }
 
-func reconcileBasedOnCustomObject(r *SimpleOperatorReconciler, l *logr.Logger, ctx context.Context, req ctrl.Request, sor *sov1alpha1.SimpleOperator, empty client.Object, meta client.Object, expected client.Object) (ctrl.Result, error) {
+func reconcileBasedOnCustomObject(r *SimpleOperatorReconciler, l *logr.Logger, ctx context.Context, req ctrl.Request, sor *sov1alpha1.SimpleOperator, empty client.Object, expected client.Object) (ctrl.Result, error) {
 	var err error = nil
 	var res ctrl.Result = ctrl.Result{RequeueAfter: time.Second * 3}
 	var statusState string = sov1alpha1.Reconciled
@@ -269,10 +275,6 @@ func reconcileBasedOnCustomObject(r *SimpleOperatorReconciler, l *logr.Logger, c
 	objectKey := types.NamespacedName{Name: objectName, Namespace: req.Namespace}
 	if err := r.Get(ctx, objectKey, current); err == nil {
 
-		// opts := []patch.CalculateOption{
-		// 	patch.IgnoreStatusFields(),
-		// }
-
 		patchResult, err := patch.DefaultPatchMaker.Calculate(current, expected)
 		if err != nil {
 			return res, err
@@ -281,7 +283,6 @@ func reconcileBasedOnCustomObject(r *SimpleOperatorReconciler, l *logr.Logger, c
 		if !patchResult.IsEmpty() {
 			log.V(0).Info("Updating the currently deployed object based on the contoller expectation")
 
-			expected := createExpectedDeployment(sor)
 			if err := r.Update(ctx, expected); err == nil {
 				statusState = sov1alpha1.UpdatingChange
 			} else {
@@ -298,20 +299,19 @@ func reconcileBasedOnCustomObject(r *SimpleOperatorReconciler, l *logr.Logger, c
 
 			log.V(0).Info("Deployed object is NOT found, creating it")
 
-			deploy := createExpectedDeployment(sor)
-			if err = ctrl.SetControllerReference(sor, deploy, r.Scheme); err != nil {
+			if err = ctrl.SetControllerReference(sor, expected, r.Scheme); err != nil {
 				log.Error(err, "Unable to set controller reference on deployed object")
 				return res, err
 			}
 
-			controllerutil.AddFinalizer(deploy, finalizerName)
+			controllerutil.AddFinalizer(expected, finalizerName)
 
-			if err := patch.DefaultAnnotator.SetLastAppliedAnnotation(deploy); err != nil {
+			if err := patch.DefaultAnnotator.SetLastAppliedAnnotation(expected); err != nil {
 				log.Error(err, "Unable to set LastAppliedAnnotation on deployed object")
 				return res, err
 			}
 
-			if latestErr := r.Create(ctx, deploy); latestErr == nil {
+			if latestErr := r.Create(ctx, expected); latestErr == nil {
 				statusState = sov1alpha1.Creating
 
 			} else if !errors.IsAlreadyExists(latestErr) {
@@ -355,15 +355,6 @@ func reconcileBasedOnCustomObject(r *SimpleOperatorReconciler, l *logr.Logger, c
 	return res, err
 }
 
-func createMetaDeployment(req ctrl.Request) *appsv1.Deployment {
-	return &appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      objectName,
-			Namespace: req.Namespace,
-		},
-	}
-}
-
 func createExpectedDeployment(sor *sov1alpha1.SimpleOperator) *appsv1.Deployment {
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
@@ -397,15 +388,6 @@ func createExpectedDeployment(sor *sov1alpha1.SimpleOperator) *appsv1.Deployment
 	}
 }
 
-func createMetaService(req ctrl.Request) *corev1.Service {
-	return &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      objectName,
-			Namespace: req.Namespace,
-		},
-	}
-}
-
 func createExpectedService(sor *sov1alpha1.SimpleOperator) *corev1.Service {
 	return &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
@@ -419,15 +401,6 @@ func createExpectedService(sor *sov1alpha1.SimpleOperator) *corev1.Service {
 					Port: 80,
 				},
 			},
-		},
-	}
-}
-
-func createMetaIngress(req ctrl.Request) *networkingv1.Ingress {
-	return &networkingv1.Ingress{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      objectName,
-			Namespace: req.Namespace,
 		},
 	}
 }
