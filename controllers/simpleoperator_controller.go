@@ -31,7 +31,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -74,82 +73,64 @@ func (r *SimpleOperatorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	if err := r.Get(ctx, req.NamespacedName, sor); err != nil {
 
 		if errors.IsNotFound(err) {
-			log.V(1).Info("Custom resource object does NOT exist")
-
-			currentDeploy := &appsv1.Deployment{}
-			objectKey := types.NamespacedName{Name: resourceName, Namespace: req.Namespace}
-			if err := r.Get(ctx, objectKey, currentDeploy); err == nil {
-
-				if !currentDeploy.ObjectMeta.DeletionTimestamp.IsZero() {
-					log.V(0).Info("Deployed object marked for deletion, deleting it", "deletionTimestamp", currentDeploy.ObjectMeta.DeletionTimestamp)
-
-					if err := r.Delete(ctx, currentDeploy); err != nil && !errors.IsNotFound(err) {
-						log.Error(err, "Unable to delete deployment")
-						return ctrl.Result{RequeueAfter: time.Second * 3}, err
-					}
-
-					controllerutil.RemoveFinalizer(currentDeploy, finalizerName)
-
-					if err := r.Update(ctx, currentDeploy); err != nil {
-						log.Error(err, "Unable to update")
-						return ctrl.Result{}, err
-					}
-				} else {
-					log.Error(nil, "Dangling deployed object")
-				}
-			}
-
+			log.V(1).Info("Custom resource does NOT exist")
 			return ctrl.Result{}, nil
-
-		} else {
-			log.Error(err, "Unable to fetch simpleoperator resource")
 		}
 
+		log.Error(err, "Unable to get custom resource")
 		return ctrl.Result{}, err
 	}
 
-	log.V(1).Info("Custom resource object exists")
+	log.V(1).Info("Custom resource exists")
 
-	var latestErr error = nil
-	var latestRes ctrl.Result = ctrl.Result{RequeueAfter: time.Second * 3}
+	var requeue ctrl.Result = ctrl.Result{RequeueAfter: time.Second * 3}
 
-	latestRes, latestErr = reconcileBasedOnCustomResourceObject(r, &log, ctx, req, sor, &appsv1.Deployment{}, createMetaDeployment(req), createExpectedDeployment(sor))
+	if controllerutil.ContainsFinalizer(sor, finalizerName) {
 
-	if latestErr != nil {
-		return latestRes, latestErr
+		if !sor.ObjectMeta.DeletionTimestamp.IsZero() {
+			log.V(0).Info("Custom resource is marked for deletion, deleting it with deployed resources")
+
+			if res, err := deleteDeployedResource(r, &log, ctx, req, &networkingv1.Ingress{}); err != nil {
+				return res, err
+			}
+
+			if res, err := deleteDeployedResource(r, &log, ctx, req, &corev1.Service{}); err != nil {
+				return res, err
+			}
+
+			if res, err := deleteDeployedResource(r, &log, ctx, req, &appsv1.Deployment{}); err != nil {
+				return res, err
+			}
+
+			log.V(1).Info("Removing finalizer from custom resource")
+			controllerutil.RemoveFinalizer(sor, finalizerName)
+			if err := r.Update(ctx, sor); err != nil {
+				log.Error(err, "Unable to remove finalizer from customer resource")
+				return requeue, err
+			}
+
+			return ctrl.Result{}, nil
+		}
+
+	} else {
+		log.V(0).Info("Newly added custom resource, adding finalizer")
+		controllerutil.AddFinalizer(sor, finalizerName)
+		if err := r.Update(ctx, sor); err != nil {
+			log.Error(err, "Unable to add finalizer to customer resource")
+			return requeue, err
+		}
 	}
 
-	// latestRes, latestErr = reconcileBasedOnCustomResourceObject(r, &log, ctx, req, sor, &corev1.Service{}, createMetaService(req), createExpectedService(sor))
-
-	// if latestErr != nil {
-	// 	return latestRes, latestErr
-	// }
-
-	// if err := r.Status().Update(ctx, sor); err != nil {
-	// 	log.V(1).Info("Error when updating status, trying again")
-	// 	return ctrl.Result{RequeueAfter: time.Second * 3}, err
-	// }
-
-	// latestRes, latestErr = reconcileBasedOnCustomResourceObject(r, &log, ctx, req, sor, &networkingv1.Ingress{}, createMetaIngress(req), createExpectedIngress(sor))
-
-	// if latestErr != nil {
-	// 	return latestRes, latestErr
-	// }
-
-	// if err := r.Status().Update(ctx, sor); err != nil {
-	// 	log.V(1).Info("Error when updating status, trying again")
-	// 	return ctrl.Result{RequeueAfter: time.Second * 3}, err
-	// }
-
-	return latestRes, latestErr
-}
-
-func (r *SimpleOperatorReconciler) UpdateStatus(sor *sov1alpha1.SimpleOperator, log logr.Logger, ctx context.Context, res reconcile.Result) (ctrl.Result, error) {
-	if err := r.Status().Update(ctx, sor); err != nil {
-		log.Info("Error when updating status. Let's try again")
-		return ctrl.Result{RequeueAfter: time.Second * 3}, err
+	if res, err := reconcileBasedOnCustomResourceObject(r, &log, ctx, req, sor, &appsv1.Deployment{}, createMetaDeployment(req), createExpectedDeployment(sor)); err != nil {
+		return res, err
 	}
+
 	return ctrl.Result{}, nil
+	// if res, err := reconcileBasedOnCustomResourceObject(r, &log, ctx, req, sor, &corev1.Service{}, createMetaService(req), createExpectedService(sor)); err != nil {
+	// 	return res, err
+	// }
+
+	// return reconcileBasedOnCustomResourceObject(r, &log, ctx, req, sor, &networkingv1.Ingress{}, createMetaIngress(req), createExpectedIngress(sor))
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -181,6 +162,40 @@ func (r *SimpleOperatorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 // 		},
 // 	}
 // }
+
+func getObjctKind(obj interface{}) string {
+	switch obj.(type) {
+	case *appsv1.Deployment:
+		current := obj.(*appsv1.Deployment)
+		return current.Kind
+	case *corev1.Service:
+		current := obj.(*corev1.Service)
+		return current.Kind
+	case *networkingv1.Ingress:
+		current := obj.(*networkingv1.Ingress)
+		return current.Kind
+	}
+	return ""
+}
+
+func deleteDeployedResource(r *SimpleOperatorReconciler, log *logr.Logger, ctx context.Context, req ctrl.Request, emptyObject client.Object) (ctrl.Result, error) {
+
+	currentDeploy := emptyObject
+	objectKey := types.NamespacedName{Name: resourceName, Namespace: req.Namespace}
+	if err := r.Get(ctx, objectKey, currentDeploy); err == nil {
+
+		log.V(0).Info("Deleting deployed object", "objectKind", getObjctKind(currentDeploy))
+
+		controllerutil.RemoveFinalizer(currentDeploy, finalizerName)
+
+		if err := r.Delete(ctx, currentDeploy); err != nil && !errors.IsNotFound(err) {
+			log.Error(err, "Unable to delete deployment")
+			return ctrl.Result{RequeueAfter: time.Second * 3}, err
+		}
+	}
+
+	return ctrl.Result{}, nil
+}
 
 func getUnhandledObjectTypeError(obj interface{}) error {
 	return fmt.Errorf("Unhandled resource object type: %T", obj)
