@@ -41,7 +41,7 @@ import (
 	sov1alpha1 "github.com/szikes-adam/simple-kubernetes-operator/api/v1alpha1"
 )
 
-const objectName = "so-resource"
+const objectName = "so-object"
 const finalizerName = "simpleoperator.szikes.io/finalizer"
 const secretName = "tls-cert"
 
@@ -88,7 +88,7 @@ func (r *SimpleOperatorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	if controllerutil.ContainsFinalizer(sor, finalizerName) {
 
 		if !sor.ObjectMeta.DeletionTimestamp.IsZero() {
-			log.V(0).Info("Custom object is marked for deletion, deleting it with deployed objects")
+			log.V(0).Info("Custom object is marked for deletion, deleting it together with deployed objects")
 
 			if res, err := deleteDeployedObject(r, &log, ctx, req, &networkingv1.Ingress{}); err != nil {
 				return res, err
@@ -207,28 +207,6 @@ func getUnhandledObjectTypeError(obj interface{}) error {
 	return fmt.Errorf("Unhandled object type: %T", obj)
 }
 
-func isStatusMatch(obj interface{}, sor *sov1alpha1.SimpleOperator) bool {
-	var isStatusMatch bool = true
-
-	switch obj.(type) {
-	case *appsv1.Deployment:
-		currentDeploy := obj.(*appsv1.Deployment)
-		isStatusMatch = currentDeploy.Status.AvailableReplicas == sor.Spec.Replicas
-	case *corev1.Service:
-	case *networkingv1.Ingress:
-
-	}
-	return isStatusMatch
-}
-
-func logStatusMismatch(obj interface{}, log *logr.Logger, sor *sov1alpha1.SimpleOperator) {
-	switch obj.(type) {
-	case *appsv1.Deployment:
-		currentDeploy := obj.(*appsv1.Deployment)
-		log.V(0).Info("Deployed object is reconciling", "expectedReplicas", sor.Spec.Replicas, "currentReplicas", currentDeploy.Status.AvailableReplicas)
-	}
-}
-
 func threeWayStatusMerge(obj interface{}, sor *sov1alpha1.SimpleOperator, statusState string, statusErrMsg string) *sov1alpha1.SimpleOperatorStatus {
 	status := sov1alpha1.SimpleOperatorStatus{
 		LastUpdated:        readTimeInRFC3339(),
@@ -290,8 +268,8 @@ func reconcileBasedOnCustomObject(r *SimpleOperatorReconciler, l *logr.Logger, c
 				statusState = sov1alpha1.FailedToUpdateChange
 			}
 
-		} else if !isStatusMatch(current, sor) {
-			logStatusMismatch(current, &log, sor)
+		} else if deployment, ok := current.(*appsv1.Deployment); ok && (deployment.Status.AvailableReplicas != sor.Spec.Replicas) {
+			l.V(0).Info("Deployed object is reconciling", "expectedReplicas", sor.Spec.Replicas, "currentAvailableReplicas", deployment.Status.AvailableReplicas)
 			statusState = sov1alpha1.Reconciling
 		}
 	} else {
@@ -299,12 +277,12 @@ func reconcileBasedOnCustomObject(r *SimpleOperatorReconciler, l *logr.Logger, c
 
 			log.V(0).Info("Deployed object is NOT found, creating it")
 
+			controllerutil.AddFinalizer(expected, finalizerName)
+
 			if err = ctrl.SetControllerReference(sor, expected, r.Scheme); err != nil {
 				log.Error(err, "Unable to set controller reference on deployed object")
 				return res, err
 			}
-
-			controllerutil.AddFinalizer(expected, finalizerName)
 
 			if err := patch.DefaultAnnotator.SetLastAppliedAnnotation(expected); err != nil {
 				log.Error(err, "Unable to set LastAppliedAnnotation on deployed object")
@@ -335,21 +313,25 @@ func reconcileBasedOnCustomObject(r *SimpleOperatorReconciler, l *logr.Logger, c
 		return res, err
 	}
 
-	if err = r.Get(ctx, req.NamespacedName, sor); err != nil {
-		l.Error(err, "Unable to get custom object, just before updating it")
-		return res, err
+	if deployment, ok := current.(*appsv1.Deployment); ok {
+		sor.Status.AvabilableReplicas = deployment.Status.AvailableReplicas
 	}
 
-	if _, ok := current.(*appsv1.Deployment); ok {
-		currentDeploy := current.(*appsv1.Deployment)
-		sor.Status.AvabilableReplicas = currentDeploy.Status.AvailableReplicas
+	if err = r.Get(ctx, req.NamespacedName, sor); err != nil {
+		log.Error(err, "Unable to get custom object, just before updating it")
+		return res, err
 	}
 
 	status := threeWayStatusMerge(empty, sor, statusState, statusErrMsg)
 	sor.Status = *status
 
 	if err := r.Status().Update(ctx, sor); err != nil {
-		l.V(1).Info("Unable to update status of custom object")
+		if errors.IsConflict(err) {
+			log.V(0).Info("Unable to update status of custom object due to ResourceVersion mismatch, retrying the update")
+			res = ctrl.Result{RequeueAfter: time.Second * 3}
+		} else {
+			return ctrl.Result{RequeueAfter: time.Second * 3}, err
+		}
 	}
 
 	return res, err
