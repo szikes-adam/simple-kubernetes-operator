@@ -102,7 +102,12 @@ func (r *SimpleOperatorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 				return res, err
 			}
 
-			log.V(1).Info("Removing finalizer from custom object")
+			if err := r.Get(ctx, req.NamespacedName, sor); err != nil {
+				log.Error(err, "Unable to get custom object before removing finalizer")
+				return requeue, err
+			}
+
+			log.V(0).Info("Removing finalizer from custom object")
 			controllerutil.RemoveFinalizer(sor, finalizerName)
 			if err := r.Update(ctx, sor); err != nil {
 				log.Error(err, "Unable to remove finalizer from customer object")
@@ -194,8 +199,13 @@ func deleteDeployedObject(r *SimpleOperatorReconciler, log *logr.Logger, ctx con
 
 		controllerutil.RemoveFinalizer(current, finalizerName)
 
+		if err := r.Update(ctx, current); err != nil {
+			log.Error(err, "Unable to update object for removing finalizer")
+			return ctrl.Result{RequeueAfter: time.Second * 3}, err
+		}
+
 		if err := r.Delete(ctx, current); err != nil && !errors.IsNotFound(err) {
-			log.Error(err, "Unable to delete deployed resource", "objectName", objectName, "objectKind", getObjctKind(current))
+			log.Error(err, "Unable to delete deployed object", "objectName", objectName, "objectKind", getObjctKind(current))
 			return ctrl.Result{RequeueAfter: time.Second * 3}, err
 		}
 	}
@@ -253,7 +263,12 @@ func reconcileBasedOnCustomObject(r *SimpleOperatorReconciler, l *logr.Logger, c
 	objectKey := types.NamespacedName{Name: objectName, Namespace: req.Namespace}
 	if err := r.Get(ctx, objectKey, current); err == nil {
 
-		patchResult, err := patch.DefaultPatchMaker.Calculate(current, expected)
+		opts := []patch.CalculateOption{
+			patch.IgnoreStatusFields(),
+			patch.IgnoreField("metadata"),
+		}
+
+		patchResult, err := patch.DefaultPatchMaker.Calculate(current.(runtime.Object), expected.(runtime.Object), opts...)
 		if err != nil {
 			return res, err
 		}
@@ -327,7 +342,7 @@ func reconcileBasedOnCustomObject(r *SimpleOperatorReconciler, l *logr.Logger, c
 
 	if err := r.Status().Update(ctx, sor); err != nil {
 		if errors.IsConflict(err) {
-			log.V(0).Info("Unable to update status of custom object due to ResourceVersion mismatch, retrying the update")
+			log.V(1).Info("Unable to update status of custom object due to ResourceVersion mismatch, retrying the update")
 			res = ctrl.Result{RequeueAfter: time.Second * 3}
 		} else {
 			return ctrl.Result{RequeueAfter: time.Second * 3}, err
