@@ -18,7 +18,6 @@ package controllers
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/banzaicloud/k8s-objectmatcher/patch"
@@ -83,38 +82,12 @@ func (r *SimpleOperatorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	log.V(1).Info("Custom object exists")
 
-	var requeue ctrl.Result = ctrl.Result{RequeueAfter: time.Second * 3}
+	requeue := ctrl.Result{RequeueAfter: time.Second * 3}
 
 	if controllerutil.ContainsFinalizer(sor, finalizerName) {
 
 		if !sor.ObjectMeta.DeletionTimestamp.IsZero() {
-			log.V(0).Info("Custom object is marked for deletion, deleting it together with deployed objects")
-
-			if res, err := deleteDeployedObject(r, &log, ctx, req, &networkingv1.Ingress{}); err != nil {
-				return res, err
-			}
-
-			if res, err := deleteDeployedObject(r, &log, ctx, req, &corev1.Service{}); err != nil {
-				return res, err
-			}
-
-			if res, err := deleteDeployedObject(r, &log, ctx, req, &appsv1.Deployment{}); err != nil {
-				return res, err
-			}
-
-			if err := r.Get(ctx, req.NamespacedName, sor); err != nil {
-				log.Error(err, "Unable to get custom object before removing finalizer")
-				return requeue, err
-			}
-
-			log.V(0).Info("Removing finalizer from custom object")
-			controllerutil.RemoveFinalizer(sor, finalizerName)
-			if err := r.Update(ctx, sor); err != nil {
-				log.Error(err, "Unable to remove finalizer from customer object")
-				return requeue, err
-			}
-
-			return ctrl.Result{}, nil
+			return cleanupObjects(r, &log, ctx, req)
 		}
 
 	} else {
@@ -213,8 +186,38 @@ func deleteDeployedObject(r *SimpleOperatorReconciler, log *logr.Logger, ctx con
 	return ctrl.Result{}, nil
 }
 
-func getUnhandledObjectTypeError(obj interface{}) error {
-	return fmt.Errorf("Unhandled object type: %T", obj)
+func cleanupObjects(r *SimpleOperatorReconciler, log *logr.Logger, ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+
+	requeue := ctrl.Result{RequeueAfter: time.Second * 3}
+
+	log.V(0).Info("Custom object is marked for deletion, deleting it together with deployed objects")
+
+	if res, err := deleteDeployedObject(r, log, ctx, req, &networkingv1.Ingress{}); err != nil {
+		return res, err
+	}
+
+	if res, err := deleteDeployedObject(r, log, ctx, req, &corev1.Service{}); err != nil {
+		return res, err
+	}
+
+	if res, err := deleteDeployedObject(r, log, ctx, req, &appsv1.Deployment{}); err != nil {
+		return res, err
+	}
+
+	sor := &sov1alpha1.SimpleOperator{}
+	if err := r.Get(ctx, req.NamespacedName, sor); err != nil {
+		log.Error(err, "Unable to get custom object before removing finalizer")
+		return requeue, err
+	}
+
+	log.V(0).Info("Removing finalizer from custom object")
+	controllerutil.RemoveFinalizer(sor, finalizerName)
+	if err := r.Update(ctx, sor); err != nil {
+		log.Error(err, "Unable to remove finalizer from customer object")
+		return requeue, err
+	}
+
+	return ctrl.Result{}, nil
 }
 
 func threeWayStatusMerge(obj interface{}, sor *sov1alpha1.SimpleOperator, statusState string, statusErrMsg string) *sov1alpha1.SimpleOperatorStatus {
@@ -251,14 +254,6 @@ func reconcileBasedOnCustomObject(r *SimpleOperatorReconciler, l *logr.Logger, c
 
 	current := empty
 	log := l.WithValues("objectName", objectName, "objectKind", getObjctKind(current))
-
-	switch current.(type) {
-	case *appsv1.Deployment:
-	case *corev1.Service:
-	case *networkingv1.Ingress:
-	default:
-		return ctrl.Result{}, errors.NewInternalError(getUnhandledObjectTypeError(current))
-	}
 
 	objectKey := types.NamespacedName{Name: objectName, Namespace: req.Namespace}
 	if err := r.Get(ctx, objectKey, current); err == nil {
