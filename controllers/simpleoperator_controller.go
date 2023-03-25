@@ -40,9 +40,11 @@ import (
 	sov1alpha1 "github.com/szikes-adam/simple-kubernetes-operator/api/v1alpha1"
 )
 
-const objectName = "so-object"
-const finalizerName = "simpleoperator.szikes.io/finalizer"
-const secretName = "tls-cert"
+const (
+	objectName    = "so-object"
+	finalizerName = "simpleoperator.szikes.io/finalizer"
+	secretName    = "tls-cert"
+)
 
 // SimpleOperatorReconciler reconciles a SimpleOperator object
 type SimpleOperatorReconciler struct {
@@ -68,8 +70,8 @@ func (r *SimpleOperatorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	log.V(1).Info("Reconciling")
 
-	sor := &sov1alpha1.SimpleOperator{}
-	if err := r.Get(ctx, req.NamespacedName, sor); err != nil {
+	soObject := &sov1alpha1.SimpleOperator{}
+	if err := r.Get(ctx, req.NamespacedName, soObject); err != nil {
 
 		if errors.IsNotFound(err) {
 			log.V(1).Info("Custom object does NOT exist")
@@ -84,27 +86,27 @@ func (r *SimpleOperatorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	requeue := ctrl.Result{RequeueAfter: time.Second * 3}
 
-	if controllerutil.ContainsFinalizer(sor, finalizerName) {
+	if controllerutil.ContainsFinalizer(soObject, finalizerName) {
 
-		if !sor.ObjectMeta.DeletionTimestamp.IsZero() {
+		if !soObject.ObjectMeta.DeletionTimestamp.IsZero() {
 			return cleanupObjects(r, &log, ctx, req)
 		}
 
 	} else {
 		log.V(0).Info("Newly added custom object, adding finalizer")
-		controllerutil.AddFinalizer(sor, finalizerName)
-		if err := r.Update(ctx, sor); err != nil {
+		controllerutil.AddFinalizer(soObject, finalizerName)
+		if err := r.Update(ctx, soObject); err != nil {
 			log.Error(err, "Unable to add finalizer to customer object")
 			return requeue, err
 		}
 	}
 
-	deployRes, deployErr := reconcileBasedOnCustomObject(r, &log, ctx, req, sor, &appsv1.Deployment{}, createExpectedDeployment(sor))
+	deployRes, deployErr := reconcileBasedOnCustomObject(r, &log, ctx, req, soObject, &appsv1.Deployment{}, createExpectedDeployment(soObject))
 	if deployErr != nil {
 		return deployRes, deployErr
 	}
 
-	svcRes, svcErr := reconcileBasedOnCustomObject(r, &log, ctx, req, sor, &corev1.Service{}, createExpectedService(sor))
+	svcRes, svcErr := reconcileBasedOnCustomObject(r, &log, ctx, req, soObject, &corev1.Service{}, createExpectedService(soObject))
 	if svcErr != nil {
 		if deployRes.RequeueAfter != 0 {
 			svcRes = deployRes
@@ -112,7 +114,7 @@ func (r *SimpleOperatorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return svcRes, svcErr
 	}
 
-	ingRes, ingErr := reconcileBasedOnCustomObject(r, &log, ctx, req, sor, &networkingv1.Ingress{}, createExpectedIngress(sor))
+	ingRes, ingErr := reconcileBasedOnCustomObject(r, &log, ctx, req, soObject, &networkingv1.Ingress{}, createExpectedIngress(soObject))
 	if deployRes.RequeueAfter != 0 {
 		ingRes = deployRes
 	} else if svcRes.RequeueAfter != 0 {
@@ -131,7 +133,7 @@ func (r *SimpleOperatorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-// 		WithEventFilter(myPredicate()).
+// WithEventFilter(myPredicate()).
 // func myPredicate() predicate.Predicate {
 // 	return predicate.Funcs{
 // 		CreateFunc: func(e event.CreateEvent) bool {
@@ -168,7 +170,7 @@ func deleteDeployedObject(r *SimpleOperatorReconciler, log *logr.Logger, ctx con
 	objectKey := types.NamespacedName{Name: objectName, Namespace: req.Namespace}
 	if err := r.Get(ctx, objectKey, current); err == nil {
 
-		log.V(0).Info("Deleting deployed object", "objectName", objectName, "objectKind", getObjctKind(current))
+		log.V(0).Info("Deleting object", "objectName", objectName, "objectKind", getObjctKind(current))
 
 		controllerutil.RemoveFinalizer(current, finalizerName)
 
@@ -178,7 +180,7 @@ func deleteDeployedObject(r *SimpleOperatorReconciler, log *logr.Logger, ctx con
 		}
 
 		if err := r.Delete(ctx, current); err != nil && !errors.IsNotFound(err) {
-			log.Error(err, "Unable to delete deployed object", "objectName", objectName, "objectKind", getObjctKind(current))
+			log.Error(err, "Unable to delete object", "objectName", objectName, "objectKind", getObjctKind(current))
 			return ctrl.Result{RequeueAfter: time.Second * 3}, err
 		}
 	}
@@ -190,7 +192,7 @@ func cleanupObjects(r *SimpleOperatorReconciler, log *logr.Logger, ctx context.C
 
 	requeue := ctrl.Result{RequeueAfter: time.Second * 3}
 
-	log.V(0).Info("Custom object is marked for deletion, deleting it together with deployed objects")
+	log.V(0).Info("Custom object is marked for deletion, deleting it together with created objects")
 
 	if res, err := deleteDeployedObject(r, log, ctx, req, &networkingv1.Ingress{}); err != nil {
 		return res, err
@@ -204,15 +206,15 @@ func cleanupObjects(r *SimpleOperatorReconciler, log *logr.Logger, ctx context.C
 		return res, err
 	}
 
-	sor := &sov1alpha1.SimpleOperator{}
-	if err := r.Get(ctx, req.NamespacedName, sor); err != nil {
+	soObject := &sov1alpha1.SimpleOperator{}
+	if err := r.Get(ctx, req.NamespacedName, soObject); err != nil {
 		log.Error(err, "Unable to get custom object before removing finalizer")
 		return requeue, err
 	}
 
 	log.V(0).Info("Removing finalizer from custom object")
-	controllerutil.RemoveFinalizer(sor, finalizerName)
-	if err := r.Update(ctx, sor); err != nil {
+	controllerutil.RemoveFinalizer(soObject, finalizerName)
+	if err := r.Update(ctx, soObject); err != nil {
 		log.Error(err, "Unable to remove finalizer from customer object")
 		return requeue, err
 	}
@@ -220,16 +222,16 @@ func cleanupObjects(r *SimpleOperatorReconciler, log *logr.Logger, ctx context.C
 	return ctrl.Result{}, nil
 }
 
-func threeWayStatusMerge(obj interface{}, sor *sov1alpha1.SimpleOperator, statusState string, statusErrMsg string) *sov1alpha1.SimpleOperatorStatus {
+func threeWayStatusMerge(obj interface{}, soObject *sov1alpha1.SimpleOperator, statusState string, statusErrMsg string) *sov1alpha1.SimpleOperatorStatus {
 	status := sov1alpha1.SimpleOperatorStatus{
 		LastUpdated:        readTimeInRFC3339(),
-		AvabilableReplicas: sor.Status.AvabilableReplicas,
-		DeploymentState:    sor.Status.DeploymentState,
-		DeploymentErrorMsg: sor.Status.DeploymentErrorMsg,
-		ServiceState:       sor.Status.ServiceState,
-		ServiceErrorMsg:    sor.Status.ServiceErrorMsg,
-		IngressState:       sor.Status.IngressState,
-		IngressErrorMsg:    sor.Status.IngressErrorMsg,
+		AvabilableReplicas: soObject.Status.AvabilableReplicas,
+		DeploymentState:    soObject.Status.DeploymentState,
+		DeploymentErrorMsg: soObject.Status.DeploymentErrorMsg,
+		ServiceState:       soObject.Status.ServiceState,
+		ServiceErrorMsg:    soObject.Status.ServiceErrorMsg,
+		IngressState:       soObject.Status.IngressState,
+		IngressErrorMsg:    soObject.Status.IngressErrorMsg,
 	}
 
 	switch obj.(type) {
@@ -246,7 +248,7 @@ func threeWayStatusMerge(obj interface{}, sor *sov1alpha1.SimpleOperator, status
 	return &status
 }
 
-func reconcileBasedOnCustomObject(r *SimpleOperatorReconciler, l *logr.Logger, ctx context.Context, req ctrl.Request, sor *sov1alpha1.SimpleOperator, empty client.Object, expected client.Object) (ctrl.Result, error) {
+func reconcileBasedOnCustomObject(r *SimpleOperatorReconciler, l *logr.Logger, ctx context.Context, req ctrl.Request, soObject *sov1alpha1.SimpleOperator, empty client.Object, expected client.Object) (ctrl.Result, error) {
 	var err error = nil
 	var res ctrl.Result = ctrl.Result{RequeueAfter: time.Second * 3}
 	var statusState string = sov1alpha1.Reconciled
@@ -269,33 +271,33 @@ func reconcileBasedOnCustomObject(r *SimpleOperatorReconciler, l *logr.Logger, c
 		}
 
 		if !patchResult.IsEmpty() {
-			log.V(0).Info("Updating the currently deployed object based on the contoller expectation")
+			log.V(0).Info("Updating the currently created object based on the contoller expectation")
 
 			if err := r.Update(ctx, expected); err == nil {
 				statusState = sov1alpha1.UpdatingChange
 			} else {
-				log.Error(err, "Unable to update the currently deployed object based on the contoller expectation")
+				log.Error(err, "Unable to update the currently created object based on the contoller expectation")
 				statusState = sov1alpha1.FailedToUpdateChange
 			}
 
-		} else if deployment, ok := current.(*appsv1.Deployment); ok && (deployment.Status.AvailableReplicas != sor.Spec.Replicas) {
-			l.V(0).Info("Deployed object is reconciling", "expectedReplicas", sor.Spec.Replicas, "currentAvailableReplicas", deployment.Status.AvailableReplicas)
+		} else if deployment, ok := current.(*appsv1.Deployment); ok && (deployment.Status.AvailableReplicas != soObject.Spec.Replicas) {
+			l.V(0).Info("Deployment object is reconciling", "expectedReplicas", soObject.Spec.Replicas, "currentAvailableReplicas", deployment.Status.AvailableReplicas)
 			statusState = sov1alpha1.Reconciling
 		}
 	} else {
 		if errors.IsNotFound(err) {
 
-			log.V(0).Info("Deployed object is NOT found, creating it")
+			log.V(0).Info("Created object is NOT found, creating it")
 
 			controllerutil.AddFinalizer(expected, finalizerName)
 
-			if err = ctrl.SetControllerReference(sor, expected, r.Scheme); err != nil {
-				log.Error(err, "Unable to set controller reference on deployed object")
+			if err = ctrl.SetControllerReference(soObject, expected, r.Scheme); err != nil {
+				log.Error(err, "Unable to set controller reference on created object")
 				return res, err
 			}
 
 			if err := patch.DefaultAnnotator.SetLastAppliedAnnotation(expected); err != nil {
-				log.Error(err, "Unable to set LastAppliedAnnotation on deployed object")
+				log.Error(err, "Unable to set LastAppliedAnnotation on created object")
 				return res, err
 			}
 
@@ -311,7 +313,7 @@ func reconcileBasedOnCustomObject(r *SimpleOperatorReconciler, l *logr.Logger, c
 		} else {
 			statusState = sov1alpha1.InternalError
 			statusErrMsg = err.Error()
-			log.Error(err, "Unable to get deployed object")
+			log.Error(err, "Unable to get created object")
 		}
 	}
 
@@ -324,18 +326,18 @@ func reconcileBasedOnCustomObject(r *SimpleOperatorReconciler, l *logr.Logger, c
 	}
 
 	if deployment, ok := current.(*appsv1.Deployment); ok {
-		sor.Status.AvabilableReplicas = deployment.Status.AvailableReplicas
+		soObject.Status.AvabilableReplicas = deployment.Status.AvailableReplicas
 	}
 
-	if err = r.Get(ctx, req.NamespacedName, sor); err != nil {
+	if err = r.Get(ctx, req.NamespacedName, soObject); err != nil {
 		log.Error(err, "Unable to get custom object, just before updating it")
 		return res, err
 	}
 
-	status := threeWayStatusMerge(empty, sor, statusState, statusErrMsg)
-	sor.Status = *status
+	status := threeWayStatusMerge(empty, soObject, statusState, statusErrMsg)
+	soObject.Status = *status
 
-	if err := r.Status().Update(ctx, sor); err != nil {
+	if err := r.Status().Update(ctx, soObject); err != nil {
 		if errors.IsConflict(err) {
 			log.V(1).Info("Unable to update status of custom object due to ResourceVersion mismatch, retrying the update")
 			res = ctrl.Result{RequeueAfter: time.Second * 3}
@@ -347,17 +349,17 @@ func reconcileBasedOnCustomObject(r *SimpleOperatorReconciler, l *logr.Logger, c
 	return res, err
 }
 
-func createExpectedDeployment(sor *sov1alpha1.SimpleOperator) *appsv1.Deployment {
+func createExpectedDeployment(soObject *sov1alpha1.SimpleOperator) *appsv1.Deployment {
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      objectName,
-			Namespace: sor.Namespace,
+			Namespace: soObject.Namespace,
 		},
 		Spec: appsv1.DeploymentSpec{
 			Selector: &metav1.LabelSelector{
 				MatchLabels: map[string]string{"app": objectName},
 			},
-			Replicas: &sor.Spec.Replicas,
+			Replicas: &soObject.Spec.Replicas,
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: map[string]string{"app": objectName},
@@ -366,7 +368,7 @@ func createExpectedDeployment(sor *sov1alpha1.SimpleOperator) *appsv1.Deployment
 					Containers: []corev1.Container{
 						{
 							Name:  objectName,
-							Image: sor.Spec.Image,
+							Image: soObject.Spec.Image,
 							Ports: []corev1.ContainerPort{
 								{
 									ContainerPort: 80,
@@ -380,11 +382,11 @@ func createExpectedDeployment(sor *sov1alpha1.SimpleOperator) *appsv1.Deployment
 	}
 }
 
-func createExpectedService(sor *sov1alpha1.SimpleOperator) *corev1.Service {
+func createExpectedService(soObject *sov1alpha1.SimpleOperator) *corev1.Service {
 	return &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      objectName,
-			Namespace: sor.Namespace,
+			Namespace: soObject.Namespace,
 		},
 		Spec: corev1.ServiceSpec{
 			Selector: map[string]string{"app": objectName},
@@ -397,12 +399,12 @@ func createExpectedService(sor *sov1alpha1.SimpleOperator) *corev1.Service {
 	}
 }
 
-func createExpectedIngress(sor *sov1alpha1.SimpleOperator) *networkingv1.Ingress {
+func createExpectedIngress(soObject *sov1alpha1.SimpleOperator) *networkingv1.Ingress {
 	pathType := networkingv1.PathType("Prefix")
 	return &networkingv1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      objectName,
-			Namespace: sor.Namespace,
+			Namespace: soObject.Namespace,
 			Annotations: map[string]string{
 				"cert-manager.io/cluster-issuer":             "letsencrypt-staging",
 				"kubernetes.io/ingress.class":                "nginx",
@@ -413,14 +415,14 @@ func createExpectedIngress(sor *sov1alpha1.SimpleOperator) *networkingv1.Ingress
 			TLS: []networkingv1.IngressTLS{
 				{
 					Hosts: []string{
-						sor.Spec.Host,
+						soObject.Spec.Host,
 					},
 					SecretName: secretName,
 				},
 			},
 			Rules: []networkingv1.IngressRule{
 				{
-					Host: sor.Spec.Host,
+					Host: soObject.Spec.Host,
 					IngressRuleValue: networkingv1.IngressRuleValue{
 						HTTP: &networkingv1.HTTPIngressRuleValue{
 							Paths: []networkingv1.HTTPIngressPath{
