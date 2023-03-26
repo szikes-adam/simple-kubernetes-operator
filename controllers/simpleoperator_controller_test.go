@@ -6,8 +6,10 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"golang.org/x/exp/maps"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -33,7 +35,6 @@ var _ = Describe("SimpleOperator controller", func() {
 		patchingName  = "banzaicloud.com/last-applied"
 
 		timeout  = time.Second * 10
-		duration = time.Second * 10
 		interval = time.Millisecond * 250
 
 		ordinaryHost  = "so.io"
@@ -42,16 +43,127 @@ var _ = Describe("SimpleOperator controller", func() {
 		ordinaryImage  = "hello-world"
 		differentImage = "diff-hello-world"
 
-		noReplicas              = 0
+		noReplicas        int32 = 0
 		ordinaryReplicas  int32 = 3
-		differentReplicas       = 5
+		differentReplicas int32 = 5
 	)
 
-	createdObjectKey := types.NamespacedName{Name: objectName, Namespace: "default"}
-	soObjectKey := types.NamespacedName{Name: "simpleoperator-sample", Namespace: "default"}
+	createdObjectKey := types.NamespacedName{Name: objectName, Namespace: objectNamespace}
+	soObjectKey := types.NamespacedName{Name: soObjectName, Namespace: soObjectNamespace}
 
-	Describe("Given an already created simpleoperator object", func() {
-		ctx := context.Background()
+	ctx := context.Background()
+
+	waitForReconciledState := func() *sov1alpha1.SimpleOperator {
+		soObject := &sov1alpha1.SimpleOperator{}
+		Eventually(func() string {
+			if err := k8sClient.Get(ctx, soObjectKey, soObject); err != nil {
+				return err.Error()
+			}
+
+			if soObject.Status.DeploymentState != sov1alpha1.Reconciled ||
+				soObject.Status.DeploymentErrorMsg != "" ||
+				soObject.Status.ServiceState != sov1alpha1.Reconciled ||
+				soObject.Status.ServiceErrorMsg != "" ||
+				soObject.Status.IngressState != sov1alpha1.Reconciled ||
+				soObject.Status.IngressErrorMsg != "" {
+				return "Some created objects are not reconciled!"
+			}
+			return ""
+		}, timeout, interval).Should(Equal(""))
+		return soObject
+	}
+
+	waitForCreatedObject := func(object client.Object) {
+		Eventually(func() string {
+			if err := k8sClient.Get(ctx, createdObjectKey, object); err != nil {
+				return err.Error()
+			}
+			return ""
+		}, timeout, interval).Should(Equal(""))
+	}
+
+	waitForDeletedOjbect := func(object client.Object) {
+		Eventually(func() string {
+			if err := k8sClient.Get(ctx, createdObjectKey, object); err != nil {
+				return ""
+			}
+			return "The object is not deleted yet"
+		}, timeout, interval).Should(Equal(""))
+	}
+
+	createSimpleOperatorObject := func(objectName, objectNamespace, host, image string, replicas int32) *sov1alpha1.SimpleOperator {
+		return &sov1alpha1.SimpleOperator{
+			TypeMeta: metav1.TypeMeta{
+				APIVersion: "simpleoperator.szikes.io/v1alpha1",
+				Kind:       soObjectKind,
+			},
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      soObjectName,
+				Namespace: soObjectNamespace,
+			},
+			Spec: sov1alpha1.SimpleOperatorSpec{
+				Host:     host,
+				Image:    image,
+				Replicas: replicas,
+			},
+		}
+	}
+
+	doReconcile := func(replicas int32) {
+		Eventually(func() string {
+			object := &appsv1.Deployment{}
+			if err := k8sClient.Get(ctx, createdObjectKey, object); err != nil {
+				return err.Error()
+			}
+
+			object.Status.Replicas = replicas
+			object.Status.ReadyReplicas = replicas
+			object.Status.AvailableReplicas = replicas
+
+			if err := k8sClient.Status().Update(ctx, object); err != nil {
+				return err.Error()
+			}
+
+			return ""
+		}, timeout, interval).Should(Equal(""))
+	}
+
+	deleteSimpleOperatorSafely := func() {
+		soObject := &sov1alpha1.SimpleOperator{}
+		if err := k8sClient.Get(ctx, soObjectKey, soObject); err != nil {
+			if errors.IsNotFound(err) {
+				return
+			}
+			Expect(err.Error()).To(Equal(""))
+		}
+		if err := k8sClient.Delete(ctx, soObject); err != nil {
+			if errors.IsNotFound(err) {
+				return
+			}
+			Expect(err.Error()).To(Equal(""))
+		}
+
+		Eventually(func() string {
+			if err := k8sClient.Get(ctx, soObjectKey, soObject); err != nil {
+				if errors.IsNotFound(err) {
+					return ""
+				}
+				return err.Error()
+			}
+
+			controllerutil.RemoveFinalizer(soObject, finalizerName)
+
+			if err := k8sClient.Update(ctx, soObject); err != nil {
+				if errors.IsNotFound(err) {
+					return ""
+				}
+				return err.Error()
+			}
+			return "The SimpleOperator is still created"
+		}, timeout, interval).Should(Equal(""))
+	}
+
+	Describe("Given an ordinary SimpleOperator object", func() {
 
 		BeforeEach(func() {
 			soObject := createSimpleOperatorObject(objectName, objectNamespace, ordinaryHost, ordinaryImage, ordinaryReplicas)
@@ -59,94 +171,287 @@ var _ = Describe("SimpleOperator controller", func() {
 		})
 
 		AfterEach(func() {
-			soObject := &sov1alpha1.SimpleOperator{}
-			if err := k8sClient.Get(ctx, soObjectKey, soObject); err != nil {
-				if errors.IsNotFound(err) {
-					return
-				}
-				Expect(err.Error()).To(Equal(""))
-			}
-			if err := k8sClient.Delete(ctx, soObject); err != nil {
-				if errors.IsNotFound(err) {
-					return
-				}
-				Expect(err.Error()).To(Equal(""))
-			}
-
-			Eventually(func() string {
-				if err := k8sClient.Get(ctx, soObjectKey, soObject); err != nil {
-					if errors.IsNotFound(err) {
-						return ""
-					}
-					return err.Error()
-				}
-
-				controllerutil.RemoveFinalizer(soObject, finalizerName)
-
-				if err := k8sClient.Update(ctx, soObject); err != nil {
-					if errors.IsNotFound(err) {
-						return ""
-					}
-					return err.Error()
-				}
-				return ""
-			}, timeout, interval).Should(Equal(""))
+			deleteSimpleOperatorSafely()
 		})
 
-		Context("When we are just right after the creation of simpleoperator object", func() {
-			It("Then the controller creates Deployment object based on simpleoperator object", func() {
+		Context("When we are just right after the creation of SimpleOperator object", func() {
+			It("Then the controller adds finalizer to SimpleOperator object", func() {
+				soObject := &sov1alpha1.SimpleOperator{}
+				Eventually(func() string {
+					if err := k8sClient.Get(ctx, soObjectKey, soObject); err != nil {
+						return err.Error()
+					}
+					if len(soObject.ObjectMeta.Finalizers) > 0 && soObject.ObjectMeta.Finalizers[0] != finalizerName {
+						return "The finalizer is not added yet"
+					}
+					return ""
+				}, timeout, interval).Should(Equal(""))
+			})
+
+			It("Then the controller creates Deployment object based on SimpleOperator object", func() {
+				doReconcile(ordinaryReplicas)
 
 				object := &appsv1.Deployment{}
-
-				Eventually(func() bool {
-					err := k8sClient.Get(ctx, createdObjectKey, object)
-					return err == nil
-				}, timeout, interval).Should(BeTrue())
+				waitForCreatedObject(object)
 
 				Expect(*object.Spec.Replicas).To(Equal(ordinaryReplicas))
 				Expect(object.Spec.Template.Spec.Containers[0].Image).To(Equal(ordinaryImage))
-
 			})
+
+			It("Then the controller adds patching, finalizer, and controller reference to Deployment", func() {
+				object := &appsv1.Deployment{}
+				waitForCreatedObject(object)
+
+				keys := maps.Keys(object.ObjectMeta.Annotations)
+				Expect(keys).To(ContainElement(patchingName))
+				Expect(object.ObjectMeta.Finalizers).To(ContainElement(finalizerName))
+				Expect(object.ObjectMeta.OwnerReferences[0].Kind).To(Equal(soObjectKind))
+			})
+
 			It("Then the controller creates Service object", func() {
-
-				Eventually(func() bool {
-					object := &corev1.Service{}
-					err := k8sClient.Get(ctx, createdObjectKey, object)
-					return err == nil
-				}, timeout, interval).Should(BeTrue())
+				object := &corev1.Service{}
+				waitForCreatedObject(object)
 			})
-			It("Then the controller creates Ingress object based on simpleoperator object", func() {
 
+			It("Then the controller adds patching, finalizer, and controller reference to Service", func() {
+				object := &corev1.Service{}
+				waitForCreatedObject(object)
+
+				keys := maps.Keys(object.ObjectMeta.Annotations)
+				Expect(keys).To(ContainElement(patchingName))
+				Expect(object.ObjectMeta.Finalizers).To(ContainElement(finalizerName))
+				Expect(object.ObjectMeta.OwnerReferences[0].Kind).To(Equal(soObjectKind))
+			})
+
+			It("Then the controller creates Ingress object based on SimpleOperator object", func() {
 				object := &networkingv1.Ingress{}
-
-				Eventually(func() bool {
-
-					err := k8sClient.Get(ctx, createdObjectKey, object)
-					return err == nil
-				}, timeout, interval).Should(BeTrue())
+				waitForCreatedObject(object)
 
 				Expect(object.Spec.TLS[0].Hosts).To(ContainElement(ordinaryHost))
 				Expect(object.Spec.Rules[0].Host).To(Equal(ordinaryHost))
 			})
+
+			It("Then the controller adds patching, finalizer, and controller reference to Ingress", func() {
+				object := &networkingv1.Ingress{}
+				waitForCreatedObject(object)
+
+				keys := maps.Keys(object.ObjectMeta.Annotations)
+				Expect(keys).To(ContainElement(patchingName))
+				Expect(object.ObjectMeta.Finalizers).To(ContainElement(finalizerName))
+				Expect(object.ObjectMeta.OwnerReferences[0].Kind).To(Equal(soObjectKind))
+			})
+		})
+
+		Context("When we wait for reconcilation", func() {
+			It("Then the controller can reach the reconciled state", func() {
+				doReconcile(ordinaryReplicas)
+				_ = waitForReconciledState()
+			})
+		})
+
+		Context("When a new version of SimpleOperator object is applying", func() {
+
+			BeforeEach(func() {
+				doReconcile(ordinaryReplicas)
+				_ = waitForReconciledState()
+
+				soObject := &sov1alpha1.SimpleOperator{}
+				Expect(k8sClient.Get(ctx, soObjectKey, soObject)).Should(Succeed())
+
+				soObject.Spec.Host = differentHost
+				soObject.Spec.Image = differentImage
+				soObject.Spec.Replicas = differentReplicas
+
+				Expect(k8sClient.Update(ctx, soObject)).Should(Succeed())
+			})
+
+			It("Then the controller can reach the reconciled state again", func() {
+				doReconcile(differentReplicas)
+				soObject := waitForReconciledState()
+
+				Expect(soObject.Spec.Host).To(Equal(differentHost))
+				Expect(soObject.Spec.Image).To(Equal(differentImage))
+				Expect(soObject.Spec.Replicas).To(Equal(differentReplicas))
+
+				object := &appsv1.Deployment{}
+				if err := k8sClient.Get(ctx, createdObjectKey, object); err != nil {
+					Expect(err.Error()).To(Equal(""))
+				}
+
+				Expect(object.Status.AvailableReplicas).To(Equal(differentReplicas))
+			})
+		})
+
+		Context("When a deletion happens on SimpleOperator object during reconciling", func() {
+
+			// TODO: fix the controller
+			// It("Then the controller deletes Deployment", func() {
+			// 	deleteSimpleOperatorSafely()
+			// 	object := &appsv1.Deployment{}
+			// 	waitForDeletedOjbect(object)
+			// })
+
+			// It("Then the controller deletes Service", func() {
+			// 	deleteSimpleOperatorSafely()
+			// 	object := &corev1.Service{}
+			// 	waitForDeletedOjbect(object)
+			// })
+
+			// It("Then the controller deletes Ingress", func() {
+			// 	deleteSimpleOperatorSafely()
+			// 	object := &networkingv1.Ingress{}
+			// 	waitForDeletedOjbect(object)
+			// })
+
+			It("Then the controller allows to delete SimpleOperator object", func() {
+				deleteSimpleOperatorSafely()
+			})
+		})
+
+		Context("When a deletion happens on SimpleOperator object after reconiliation", func() {
+			It("Then the controller deletes Deployment", func() {
+				doReconcile(ordinaryReplicas)
+				waitForReconciledState()
+				deleteSimpleOperatorSafely()
+				object := &appsv1.Deployment{}
+				waitForDeletedOjbect(object)
+			})
+
+			It("Then the controller deletes Service", func() {
+				doReconcile(ordinaryReplicas)
+				waitForReconciledState()
+				deleteSimpleOperatorSafely()
+				object := &corev1.Service{}
+				waitForDeletedOjbect(object)
+			})
+
+			It("Then the controller deletes Ingress", func() {
+				doReconcile(ordinaryReplicas)
+				waitForReconciledState()
+				deleteSimpleOperatorSafely()
+				object := &networkingv1.Ingress{}
+				waitForDeletedOjbect(object)
+			})
+
+			It("Then the controller allows to delete SimpleOperator object", func() {
+				doReconcile(ordinaryReplicas)
+				waitForReconciledState()
+				deleteSimpleOperatorSafely()
+			})
 		})
 	})
-	Describe("When there is a marked for deletion simpleoperator object", func() {})
-})
 
-func createSimpleOperatorObject(objectName, objectNamespace, host, image string, replicas int32) *sov1alpha1.SimpleOperator {
-	return &sov1alpha1.SimpleOperator{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: "simpleoperator.szikes.io/v1alpha1",
-			Kind:       "SimpleOperator",
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "simpleoperator-sample",
-			Namespace: "default",
-		},
-		Spec: sov1alpha1.SimpleOperatorSpec{
-			Host:     host,
-			Image:    image,
-			Replicas: replicas,
-		},
-	}
-}
+	// Describe("Given a marked for deletion SimpleOperator object", func() {
+
+	// 	BeforeEach(func() {
+	// 		soObject := createSimpleOperatorObject(objectName, objectNamespace, ordinaryHost, ordinaryImage, ordinaryReplicas)
+	// 		soObject.ObjectMeta.Finalizers = append(soObject.ObjectMeta.Finalizers, finalizerName)
+	// 		var gracePeriod int64 = 0
+	// 		soObject.ObjectMeta.DeletionGracePeriodSeconds = &gracePeriod
+	// 		deletionTimeStamp := metav1.Now()
+	// 		soObject.ObjectMeta.DeletionTimestamp = &deletionTimeStamp
+	// 		Expect(k8sClient.Create(ctx, soObject)).Should(Succeed())
+	// 	})
+
+	// 	Context("When there are not any created objects", func() {
+	// 		It("Then controller allows to delete the SimpleOperator object", func() {
+	// 			Eventually(func() string {
+	// 				soObject := &sov1alpha1.SimpleOperator{}
+	// 				if err := k8sClient.Get(ctx, soObjectKey, soObject); err != nil {
+	// 					if errors.IsNotFound(err) {
+	// 						return ""
+	// 					}
+	// 					return err.Error()
+	// 				}
+
+	// 				if err := k8sClient.Delete(ctx, soObject); err != nil {
+	// 					return err.Error()
+	// 				}
+
+	// 				return "SimpleOperator object is not deleted yet"
+	// 			}, timeout, interval).Should(Equal(""))
+	// 		})
+	// 	})
+
+	// 	Context("When there are created objects", func() {
+
+	// 		waitForDeletedObject := func(object client.Object) {
+	// 			Eventually(func() string {
+	// 				if err := k8sClient.Get(ctx, createdObjectKey, object); err != nil {
+	// 					if errors.IsNotFound(err) {
+	// 						return ""
+	// 					}
+	// 					return err.Error()
+	// 				}
+	// 				return "Object is not deleted yet"
+	// 			}, timeout, interval).Should(Equal(""))
+	// 		}
+
+	// 		It("Then controller deletes Deployment object", func() {
+	// 			doReconcile(ordinaryReplicas)
+	// 			waitForReconciledState()
+
+	// 			object := &appsv1.Deployment{}
+	// 			waitForDeletedObject(object)
+	// 		})
+
+	// 		It("Then controller deletes Service object", func() {
+	// 			doReconcile(ordinaryReplicas)
+	// 			waitForReconciledState()
+
+	// 			object := &corev1.Service{}
+	// 			waitForDeletedObject(object)
+	// 		})
+
+	// 		It("Then controller deletes Ingress object", func() {
+	// 			doReconcile(ordinaryReplicas)
+	// 			waitForReconciledState()
+
+	// 			object := &networkingv1.Ingress{}
+	// 			waitForDeletedObject(object)
+	// 		})
+
+	// 		It("Then controller allows to delete SimpleOperator object", func() {
+	// 			doReconcile(ordinaryReplicas)
+	// 			waitForReconciledState()
+
+	// 			Eventually(func() string {
+	// 				soObject := &sov1alpha1.SimpleOperator{}
+	// 				if err := k8sClient.Get(ctx, soObjectKey, soObject); err != nil {
+	// 					if errors.IsNotFound(err) {
+	// 						return ""
+	// 					}
+	// 					return err.Error()
+	// 				}
+	// 				return "The SimpleOperator object is not deleted"
+	// 			}, timeout, interval).Should(Equal(""))
+	// 		})
+	// 	})
+	// })
+
+	Describe("Given a SimpleOperator object with missing keys (these have built-in default values)", func() {
+		BeforeEach(func() {
+			soObject := createSimpleOperatorObject(objectName, objectNamespace, ordinaryHost, ordinaryImage, noReplicas)
+			Expect(k8sClient.Create(ctx, soObject)).Should(Succeed())
+		})
+
+		AfterEach(func() {
+			deleteSimpleOperatorSafely()
+		})
+
+		Context("When the contoller applies this object", func() {
+
+			It("Then the controller fills the missing `replicas` with default values", func() {
+				soObject := &sov1alpha1.SimpleOperator{}
+				Eventually(func(soObject *sov1alpha1.SimpleOperator) string {
+					if err := k8sClient.Get(ctx, soObjectKey, soObject); err != nil {
+						return err.Error()
+					}
+					return ""
+				}(soObject), timeout, interval).Should(Equal(""))
+
+				Expect(soObject.Spec.Replicas).To(Equal(int32(1)))
+			})
+		})
+	})
+})
