@@ -53,20 +53,22 @@ var _ = Describe("SimpleOperator controller", func() {
 
 	ctx := context.Background()
 
-	waitForReconciledState := func() *sov1alpha1.SimpleOperator {
+	waitForReconciledState := func(expectedReplicas int32) *sov1alpha1.SimpleOperator {
 		soObject := &sov1alpha1.SimpleOperator{}
 		Eventually(func() string {
 			if err := k8sClient.Get(ctx, soObjectKey, soObject); err != nil {
 				return err.Error()
 			}
 
+			// TODO: add soObject.Status.LastUpdated checking
 			if soObject.Status.DeploymentState != sov1alpha1.Reconciled ||
 				soObject.Status.DeploymentErrorMsg != "" ||
 				soObject.Status.ServiceState != sov1alpha1.Reconciled ||
 				soObject.Status.ServiceErrorMsg != "" ||
 				soObject.Status.IngressState != sov1alpha1.Reconciled ||
-				soObject.Status.IngressErrorMsg != "" {
-				return "Some created objects are not reconciled!"
+				soObject.Status.IngressErrorMsg != "" ||
+				soObject.Status.AvabilableReplicas != expectedReplicas {
+				return "Some objects are not reconciled yet"
 			}
 			return ""
 		}, timeout, interval).Should(Equal(""))
@@ -159,7 +161,7 @@ var _ = Describe("SimpleOperator controller", func() {
 				}
 				return err.Error()
 			}
-			return "The SimpleOperator is still created"
+			return "The SimpleOperator object is not deleted yet"
 		}, timeout, interval).Should(Equal(""))
 	}
 
@@ -242,10 +244,10 @@ var _ = Describe("SimpleOperator controller", func() {
 			})
 		})
 
-		Context("When we wait for reconcilation", func() {
+		Context("When the controller is waiting for reconcilation", func() {
 			It("Then the controller can reach the reconciled state", func() {
 				doReconcile(ordinaryReplicas)
-				_ = waitForReconciledState()
+				waitForReconciledState(ordinaryReplicas)
 			})
 		})
 
@@ -253,7 +255,7 @@ var _ = Describe("SimpleOperator controller", func() {
 
 			BeforeEach(func() {
 				doReconcile(ordinaryReplicas)
-				_ = waitForReconciledState()
+				waitForReconciledState(ordinaryReplicas)
 
 				soObject := &sov1alpha1.SimpleOperator{}
 				Expect(k8sClient.Get(ctx, soObjectKey, soObject)).Should(Succeed())
@@ -267,7 +269,7 @@ var _ = Describe("SimpleOperator controller", func() {
 
 			It("Then the controller can reach the reconciled state again", func() {
 				doReconcile(differentReplicas)
-				soObject := waitForReconciledState()
+				soObject := waitForReconciledState(differentReplicas)
 
 				Expect(soObject.Spec.Host).To(Equal(differentHost))
 				Expect(soObject.Spec.Image).To(Equal(differentImage))
@@ -282,9 +284,8 @@ var _ = Describe("SimpleOperator controller", func() {
 			})
 		})
 
-		Context("When a deletion happens on SimpleOperator object during reconciling", func() {
+		Context("When a deletion is happening on SimpleOperator object during reconciling", func() {
 
-			// TODO: fix the controller
 			// It("Then the controller deletes Deployment", func() {
 			// 	deleteSimpleOperatorSafely()
 			// 	object := &appsv1.Deployment{}
@@ -308,10 +309,10 @@ var _ = Describe("SimpleOperator controller", func() {
 			})
 		})
 
-		Context("When a deletion happens on SimpleOperator object after reconiliation", func() {
+		Context("When a deletion is happening on SimpleOperator object after reconiliation", func() {
 			It("Then the controller deletes Deployment", func() {
 				doReconcile(ordinaryReplicas)
-				waitForReconciledState()
+				waitForReconciledState(ordinaryReplicas)
 				deleteSimpleOperatorSafely()
 				object := &appsv1.Deployment{}
 				waitForDeletedOjbect(object)
@@ -319,7 +320,7 @@ var _ = Describe("SimpleOperator controller", func() {
 
 			It("Then the controller deletes Service", func() {
 				doReconcile(ordinaryReplicas)
-				waitForReconciledState()
+				waitForReconciledState(ordinaryReplicas)
 				deleteSimpleOperatorSafely()
 				object := &corev1.Service{}
 				waitForDeletedOjbect(object)
@@ -327,7 +328,7 @@ var _ = Describe("SimpleOperator controller", func() {
 
 			It("Then the controller deletes Ingress", func() {
 				doReconcile(ordinaryReplicas)
-				waitForReconciledState()
+				waitForReconciledState(ordinaryReplicas)
 				deleteSimpleOperatorSafely()
 				object := &networkingv1.Ingress{}
 				waitForDeletedOjbect(object)
@@ -335,12 +336,30 @@ var _ = Describe("SimpleOperator controller", func() {
 
 			It("Then the controller allows to delete SimpleOperator object", func() {
 				doReconcile(ordinaryReplicas)
-				waitForReconciledState()
+				waitForReconciledState(ordinaryReplicas)
 				deleteSimpleOperatorSafely()
 			})
 		})
+
+		// TODO: missing functionality from controller
+		// Context("When the objects were created before by unknown entity", func() {
+		// 	// TODO: what shall the controller do in this case?
+		// 	It("Then the controller ...")
+		// })
+
+		// Context("When the objects were created with finalizer before by unknown entity", func() {
+		// 	// TODO: what shall the controller do in this case?
+		// 	It("Then the controller ...")
+		// })
+
+		// Context("When the objects were created with controller reference before by unknown entity", func() {
+		// 	// TODO: what shall the controller do in this case?
+		// 	It("Then the controller ...")
+		// })
 	})
 
+	// TODO: In BDD, the TCs cannot depend on each other; therefore, the controller shall stop and start again in some "Then"s.
+	// This work involves some function calling from suite_test.go.
 	// Describe("Given a marked for deletion SimpleOperator object", func() {
 
 	// 	BeforeEach(func() {
@@ -389,7 +408,7 @@ var _ = Describe("SimpleOperator controller", func() {
 
 	// 		It("Then controller deletes Deployment object", func() {
 	// 			doReconcile(ordinaryReplicas)
-	// 			waitForReconciledState()
+	// 			waitForReconciledState(ordinaryReplicas)
 
 	// 			object := &appsv1.Deployment{}
 	// 			waitForDeletedObject(object)
@@ -397,7 +416,7 @@ var _ = Describe("SimpleOperator controller", func() {
 
 	// 		It("Then controller deletes Service object", func() {
 	// 			doReconcile(ordinaryReplicas)
-	// 			waitForReconciledState()
+	// 			waitForReconciledState(ordinaryReplicas)
 
 	// 			object := &corev1.Service{}
 	// 			waitForDeletedObject(object)
@@ -405,7 +424,7 @@ var _ = Describe("SimpleOperator controller", func() {
 
 	// 		It("Then controller deletes Ingress object", func() {
 	// 			doReconcile(ordinaryReplicas)
-	// 			waitForReconciledState()
+	// 			waitForReconciledState(ordinaryReplicas)
 
 	// 			object := &networkingv1.Ingress{}
 	// 			waitForDeletedObject(object)
@@ -413,7 +432,7 @@ var _ = Describe("SimpleOperator controller", func() {
 
 	// 		It("Then controller allows to delete SimpleOperator object", func() {
 	// 			doReconcile(ordinaryReplicas)
-	// 			waitForReconciledState()
+	// 			waitForReconciledState(ordinaryReplicas)
 
 	// 			Eventually(func() string {
 	// 				soObject := &sov1alpha1.SimpleOperator{}
@@ -439,7 +458,7 @@ var _ = Describe("SimpleOperator controller", func() {
 			deleteSimpleOperatorSafely()
 		})
 
-		Context("When the contoller applies this object", func() {
+		Context("When the contoller is applying", func() {
 
 			It("Then the controller fills the missing `replicas` with default values", func() {
 				soObject := &sov1alpha1.SimpleOperator{}

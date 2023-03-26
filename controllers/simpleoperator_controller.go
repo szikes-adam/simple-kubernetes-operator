@@ -53,8 +53,15 @@ type SimpleOperatorReconciler struct {
 }
 
 //+kubebuilder:rbac:groups=simpleoperator.szikes.io,resources=simpleoperators,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=simpleoperator.szikes.io,resources=simpleoperators/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=simpleoperator.szikes.io,resources=simpleoperators/status,verbs=update
 //+kubebuilder:rbac:groups=simpleoperator.szikes.io,resources=simpleoperators/finalizers,verbs=update
+//+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=apps,resources=deployments/status,verbs=get
+//+kubebuilder:rbac:groups=apps,resources=deployments/finalizers,verbs=update
+//+kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups="",resources=services/finalizers,verbs=update
+//+kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses/finalizers,verbs=update
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -224,7 +231,7 @@ func cleanupObjects(r *SimpleOperatorReconciler, log *logr.Logger, ctx context.C
 
 func threeWayStatusMerge(obj interface{}, soObject *sov1alpha1.SimpleOperator, statusState string, statusErrMsg string) *sov1alpha1.SimpleOperatorStatus {
 	status := sov1alpha1.SimpleOperatorStatus{
-		LastUpdated:        readTimeInRFC3339(),
+		LastUpdated:        metav1.Now(),
 		AvabilableReplicas: soObject.Status.AvabilableReplicas,
 		DeploymentState:    soObject.Status.DeploymentState,
 		DeploymentErrorMsg: soObject.Status.DeploymentErrorMsg,
@@ -318,6 +325,7 @@ func reconcileBasedOnCustomObject(r *SimpleOperatorReconciler, l *logr.Logger, c
 	}
 
 	if statusState == sov1alpha1.Reconciled {
+		log.V(0).Info("Reconciled")
 		res = ctrl.Result{}
 	}
 
@@ -325,13 +333,13 @@ func reconcileBasedOnCustomObject(r *SimpleOperatorReconciler, l *logr.Logger, c
 		return res, err
 	}
 
-	if deployment, ok := current.(*appsv1.Deployment); ok {
-		soObject.Status.AvabilableReplicas = deployment.Status.AvailableReplicas
-	}
-
 	if err = r.Get(ctx, req.NamespacedName, soObject); err != nil {
 		log.Error(err, "Unable to get custom object, just before updating it")
 		return res, err
+	}
+
+	if deployment, ok := current.(*appsv1.Deployment); ok {
+		soObject.Status.AvabilableReplicas = deployment.Status.AvailableReplicas
 	}
 
 	status := threeWayStatusMerge(empty, soObject, statusState, statusErrMsg)
@@ -445,10 +453,4 @@ func createExpectedIngress(soObject *sov1alpha1.SimpleOperator) *networkingv1.In
 			},
 		},
 	}
-}
-
-func readTimeInRFC3339() string {
-	RFC3339dateLayout := "2006-01-02T15:04:05Z07:00"
-	t := metav1.Now()
-	return t.Format(RFC3339dateLayout)
 }

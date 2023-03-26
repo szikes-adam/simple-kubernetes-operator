@@ -82,7 +82,7 @@ type SimpleOperatorStatus struct {
 	AvabilableReplicas int32 `json:"availableReplicas"`
 
 	// Indicates the last time, when the `simpleoperator` has changed on resource
-	LastUpdated string `json:"lastUpdated"`
+	LastUpdated metav1.Time `json:"lastUpdated"`
 }
 
 //+kubebuilder:object:root=true
