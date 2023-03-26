@@ -76,6 +76,7 @@ spec:
               lastUpdated:
                 description: Indicates the last time, when the `simpleoperator` has
                   changed on resource
+                format: date-time
                 type: string
               serviceErrorMsg:
                 description: Shows error in case of serviceState InternalError or

@@ -6,6 +6,42 @@ As the git project names says this is a really simple kubernetes operator implem
 
 > All commands must executed at level of git project root
 
+## tl;dr
+
+Steps to make `simpleoperator` work on a `kind` based cluster:
+
+Setup `NGINX` for `kind`:
+```
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
+```
+
+Wait until the `NGINX` is deployed:
+```
+kubectl wait --namespace ingress-nginx --for=condition=ready pod --selector=app.kubernetes.io/component=controller --timeout=90s
+```
+
+Setup `cert-manager`:
+```
+kubectl apply -f https://github.com/jetstack/cert-manager/releases/download/v1.11.0/cert-manager.yaml
+```
+
+Install the staging issuer:
+```
+kubectl create -f staging-issuer.yml
+```
+
+Deploy `simpleoperator`:
+```
+kubectl apply -f simpleoperator-deploy-in-cluster.yaml
+```
+
+Test with:
+```
+kubectl apply -f config/samples/simpleoperator_v1alpha1_simpleoperator.yaml
+kubectl edit so simpleoperator-sample
+kubectl delete -f config/samples/simpleoperator_v1alpha1_simpleoperator.yaml
+```
+
 ## Prerequisite
 
 Having installed `docker` (`engine` version 23.0.1, `containerd` version: 1.6.18), `kubectl` (v1.26.2), and `kind` (v0.17.0) on a Linux based server.
@@ -148,7 +184,105 @@ Reference:
 
 [Kubernetes: What is "reconciliation"?](https://speakerdeck.com/thockin/kubernetes-what-is-reconciliation)
 
-### GitHub Actions
+[Medium - 10 Things You Should Know Before Writing a Kubernetes Controller](https://medium.com/@gallettilance/10-things-you-should-know-before-writing-a-kubernetes-controller-83de8f86d659)
+
+[kubernetes blog - Using Finalizers to Control Deletion](https://kubernetes.io/blog/2021/05/14/using-finalizers-to-control-deletion/)
+
+### Build controller
+
+If you made API changes then run:
+```
+make manifests
+```
+
+But you can skip the previous step because the following will genreate CRD and install on cluster:
+```
+make install
+```
+
+```
+export ENABLE_WEBHOOKS=false
+make run
+```
+
+Reference:
+[kubebuilder - Running and deploying the controller](https://book.kubebuilder.io/cronjob-tutorial/running.html)
+
+### See log of deployed controller
+
+If the manual testing seems ok with `make run` then let's jump into the production environment. The most easiest way to do this just push the latest code to GitHub and wait for docker image.
+
+Use GitHub's docker image to deploy:
+```
+make deploy IMG=ghcr.io/szykes/simple-kubernetes-operator:0.0.1
+```
+
+Let's find where the `simpleoperator` is:
+```
+kubectl get namespaces
+```
+
+Output:
+```
+NAME                                STATUS   AGE
+default                             Active   40m
+kube-node-lease                     Active   40m
+kube-public                         Active   40m
+kube-system                         Active   40m
+local-path-storage                  Active   40m
+simple-kubernetes-operator-system   Active   28m
+```
+
+The `simple-kubernetes-operator-system` seems promising.
+
+What objects are there?
+```
+kubectl get all --namespace=simple-kubernetes-operator-system
+```
+
+Output:
+```
+NAME                                                                 READY   STATUS    RESTARTS   AGE
+pod/simple-kubernetes-operator-controller-manager-867588699d-68rsz   2/2     Running   0          44m
+
+NAME                                                                    TYPE        CLUSTER-IP    EXTERNAL-IP   PORT(S)    AGE
+service/simple-kubernetes-operator-controller-manager-metrics-service   ClusterIP   10.96.97.87   <none>        8443/TCP   44m
+
+NAME                                                            READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/simple-kubernetes-operator-controller-manager   1/1     1            1           44m
+
+NAME                                                                       DESIRED   CURRENT   READY   AGE
+replicaset.apps/simple-kubernetes-operator-controller-manager-867588699d   1         1         1       44m
+```
+
+Finally, the logs of `simpleoperator` is here:
+```
+kubectl logs --namespace=simple-kubernetes-operator-system pod/simple-kubernetes-operator-controller-manager-867588699d-n8j4p
+```
+
+Delete `simpleoperator`:
+```
+kubectl delete --namespace=simple-kubernetes-operator-system deployment.apps/simple-kubernetes-operator-controller-manager service/simple-kubernetes-operator-controller-manager-metrics-service
+```
+
+### Do a standalone config
+
+Do a `make deploy` at first, if you have not done it. Make sure this is the wanted tag of docker image:
+```
+make deploy IMG=ghcr.io/szykes/simple-kubernetes-operator:0.0.1
+```
+
+Build manually the resources:
+```
+bin/kustomize build config/default > simpleoperator-deploy-in-cluster.yaml
+```
+
+Deploy based on this, or share with anyone because this is portable:
+```
+kubectl apply -f simpleoperator-deploy-in-cluster.yaml
+```
+
+## GitHub Actions
 
 ### CI
 
@@ -203,7 +337,7 @@ Login Succeeded
 
 Verifying access by:
 ```
-docker pull ghcr.io/szykes/simple-kubernetes-operator:main
+docker pull ghcr.io/szykes/simple-kubernetes-operator:0.0.1
 ```
 
 You should see similar to this:
@@ -220,42 +354,19 @@ e8c73c638ae9: Pull complete
 5627a970d25e: Pull complete
 aefd672debf9: Pull complete
 Digest: sha256:48e6d8e4cd8252ba3044a1baae7deac41e1be42d80320c3b27d6fae2f14c4cc0
-Status: Downloaded newer image for ghcr.io/szykes/simple-kubernetes-operator:main
-ghcr.io/szykes/simple-kubernetes-operator:main
+Status: Downloaded newer image for ghcr.io/szykes/simple-kubernetes-operator:0.0.1
+ghcr.io/szykes/simple-kubernetes-operator:0.0.1
 ```
 
 Reference:
 [GitHub - Working with the Container registry](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry)
-
-## Build, Install, Run
-
-### Build controller
-
-If you made API changes then run:
-```
-make manifests
-```
-
-But you can skip the previous step because the following will genreate CRD and install on cluster:
-```
-make install
-```
-
-```
-export ENABLE_WEBHOOKS=false
-make run
-```
-
-Reference:
-[kubebuilder - Running and deploying the controller](https://book.kubebuilder.io/cronjob-tutorial/running.html)
 
 ## Further development
 
 Not all areas of this project were deeply investigated and built due to limited time.
 
 Here is the list that I would do in a next phase:
-* Use `:latest` tag for docker image
+* See `TODO`s in the code
 * Have a proper versioning (rc, beta, etc.) for git project and docker image
-
 * Use TLS between within cluster
 * Encrypt Secrets
