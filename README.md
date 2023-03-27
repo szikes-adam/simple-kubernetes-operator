@@ -32,7 +32,7 @@ kubectl create -f staging-issuer.yml
 
 Deploy `simpleoperator`:
 ```
-kubectl apply -f simpleoperator-deploy-in-cluster.yaml
+kubectl apply -f simpleoperator-0.0.1-deploy-in-cluster.yaml
 ```
 
 Test with:
@@ -188,6 +188,10 @@ Reference:
 
 [kubernetes blog - Using Finalizers to Control Deletion](https://kubernetes.io/blog/2021/05/14/using-finalizers-to-control-deletion/)
 
+[banzaicloud/k8s-objectmatcher](https://github.com/banzaicloud/k8s-objectmatcher)
+
+And so many other pages...
+
 ### Build controller
 
 If you made API changes then run:
@@ -214,7 +218,7 @@ If the manual testing seems ok with `make run` then let's jump into the producti
 
 Use GitHub's docker image to deploy:
 ```
-make deploy IMG=ghcr.io/szykes/simple-kubernetes-operator:0.0.1
+make deploy IMG=ghcr.io/szykes/simple-kubernetes-operator:main
 ```
 
 Let's find where the `simpleoperator` is:
@@ -255,7 +259,7 @@ NAME                                                                       DESIR
 replicaset.apps/simple-kubernetes-operator-controller-manager-867588699d   1         1         1       44m
 ```
 
-Finally, the logs of `simpleoperator` is here:
+Finally, the log of `simpleoperator` is here:
 ```
 kubectl logs --namespace=simple-kubernetes-operator-system pod/simple-kubernetes-operator-controller-manager-867588699d-n8j4p
 ```
@@ -274,12 +278,12 @@ make deploy IMG=ghcr.io/szykes/simple-kubernetes-operator:0.0.1
 
 Build manually the resources:
 ```
-bin/kustomize build config/default > simpleoperator-deploy-in-cluster.yaml
+bin/kustomize build config/default > simpleoperator-0.0.1-deploy-in-cluster.yaml
 ```
 
 Deploy based on this, or share with anyone because this is portable:
 ```
-kubectl apply -f simpleoperator-deploy-in-cluster.yaml
+kubectl apply -f simpleoperator-0.0.1-deploy-in-cluster.yaml
 ```
 
 ## GitHub Actions

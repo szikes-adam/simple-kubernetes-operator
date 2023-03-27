@@ -341,6 +341,17 @@ var _ = Describe("SimpleOperator controller", func() {
 			})
 		})
 
+		// TODO: missing TC implementation
+		// Context("When the spec of objects is changing by unknown entity", func() {
+		//  It("Then the contoller updates the spec of Deployment and reach the renconciled state again")
+		//  It("Then the contoller updates the spec of Service and reach the renconciled state again")
+		//  It("Then the contoller updates the spec of Ingress and reach the renconciled state again")
+		// })
+
+		// Context("When the status of objects is changing", func() {
+		//  It("The controller waits for the reconciled state")
+		// })
+
 		// TODO: missing functionality from controller
 		// Context("When the objects were created before by unknown entity", func() {
 		// 	// TODO: what shall the controller do in this case?
