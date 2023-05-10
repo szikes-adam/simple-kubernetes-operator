@@ -4,6 +4,8 @@
 
 You as a user can define custom docker image and this image is deployed and managed properly by `simple-kubernetes-operator`. Deploying and managing objects in kubernetes are based on [Kubernetes Operator pattern](https://kubernetes.io/docs/concepts/extend-kubernetes/operator/) and implemented with [Kubebuilder](https://book.kubebuilder.io).
 
+This project was my experimentation. It never was a real product.
+
 The `config/samples/simpleoperator_v1alpha1_simpleoperator.yaml` contains an example for `simple-kubernetes-operator` with simple `NGINX` image.
 
 > All commands must executed at level of git project root
@@ -369,7 +371,7 @@ Reference:
 
 ## Further development
 
-Not all areas of this project were deeply investigated and built due to limited time.
+Not all areas of this project were deeply investigated and built.
 
 Here is the list that I would do in a next phase:
 * See `TODO`s in the code
