@@ -1,0 +1,231 @@
+kubebuilder create api --group apps --version v1 --kind MyApp
+
+--------------------
+
+CRD:
+
+type MyAppSpec struct {
+    Host     string `json:"host"`
+    Image    string `json:"image"`
+    Replicas int32  `json:"replicas"`
+}
+
+type MyAppStatus struct {
+    AvailableReplicas int32 `json:"availableReplicas"`
+}
+
+type MyApp struct {
+    metav1.TypeMeta   `json:",inline"`
+    metav1.ObjectMeta `json:"metadata,omitempty"`
+
+    Spec   MyAppSpec   `json:"spec,omitempty"`
+    Status MyAppStatus `json:"status,omitempty"`
+}
+
+--------------------
+
+logic:
+
+import (
+    "context"
+    "reflect"
+
+    appsv1 "my-operator/api/v1"
+    appsv1apps "k8s.io/api/apps/v1"
+    corev1 "k8s.io/api/core/v1"
+    networkingv1 "k8s.io/api/networking/v1"
+    "k8s.io/apimachinery/pkg/api/errors"
+    metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+    "k8s.io/apimachinery/pkg/types"
+    "k8s.io/apimachinery/pkg/util/intstr"
+    "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+    "sigs.k8s.io/controller-runtime/pkg/event"
+    "sigs.k8s.io/controller-runtime/pkg/log"
+    "sigs.k8s.io/controller-runtime/pkg/predicate"
+    ctrl "sigs.k8s.io/controller-runtime"
+)
+
+var myAppPredicateFuncs = predicate.Funcs{
+    CreateFunc: func(e event.CreateEvent) bool {
+        return true
+    },
+    DeleteFunc: func(e event.DeleteEvent) bool {
+        return true
+    },
+    UpdateFunc: func(e event.UpdateEvent) bool {
+        oldObj := e.ObjectOld.(*appsv1.MyApp)
+        newObj := e.ObjectNew.(*appsv1.MyApp)
+
+        return !reflect.DeepEqual(oldObj.Spec, newObj.Spec)
+    },
+    GenericFunc: func(e event.GenericEvent) bool {
+        return false
+    },
+}
+
+func (r *MyAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+    log := log.FromContext(ctx)
+
+    var myApp appsv1.MyApp
+    if err := r.Get(ctx, req.NamespacedName, &myApp); err != nil {
+        return ctrl.Result{}, client.IgnoreNotFound(err)
+    }
+
+    if err := r.createOrUpdateDeployment(ctx, &myApp); err != nil {
+        return ctrl.Result{}, err
+    }
+
+    if err := r.createOrUpdateService(ctx, &myApp); err != nil {
+        return ctrl.Result{}, err
+    }
+
+    if err := r.createOrUpdateIngress(ctx, &myApp); err != nil {
+        return ctrl.Result{}, err
+    }
+
+    return ctrl.Result{}, nil
+}
+
+func (r *MyAppReconciler) createOrUpdateDeployment(ctx context.Context, myApp *appsv1.MyApp) error {
+    deployment := &appsv1apps.Deployment{
+        ObjectMeta: metav1.ObjectMeta{
+            Name:      myApp.Name,
+            Namespace: myApp.Namespace,
+        },
+        Spec: appsv1apps.DeploymentSpec{
+            Replicas: &myApp.Spec.Replicas,
+            Selector: &metav1.LabelSelector{
+                MatchLabels: map[string]string{"app": myApp.Name},
+            },
+            Template: corev1.PodTemplateSpec{
+                ObjectMeta: metav1.ObjectMeta{
+                    Labels: map[string]string{"app": myApp.Name},
+                },
+                Spec: corev1.PodSpec{
+                    Containers: []corev1.Container{{
+                        Name:  "app",
+                        Image: myApp.Spec.Image,
+                    }},
+                },
+            },
+        },
+    }
+
+    if err := controllerutil.SetControllerReference(myApp, deployment, r.Scheme); err != nil {
+        return err
+    }
+
+    existingDeployment := &appsv1apps.Deployment{}
+    err := r.Get(ctx, types.NamespacedName{Name: deployment.Name, Namespace: deployment.Namespace}, existingDeployment)
+    if err != nil {
+        if errors.IsNotFound(err) {
+            return r.Create(ctx, deployment)
+        }
+        return err
+    }
+
+    if !reflect.DeepEqual(deployment.Spec, existingDeployment.Spec) {
+        existingDeployment.Spec = deployment.Spec
+        return r.Update(ctx, existingDeployment)
+    }
+
+    return nil
+}
+
+func (r *MyAppReconciler) createOrUpdateService(ctx context.Context, myApp *appsv1.MyApp) error {
+    svc := &corev1.Service{
+        ObjectMeta: metav1.ObjectMeta{
+            Name:      myApp.Name,
+            Namespace: myApp.Namespace,
+        },
+        Spec: corev1.ServiceSpec{
+            Selector: map[string]string{"app": myApp.Name},
+            Ports: []corev1.ServicePort{{
+                Protocol: corev1.ProtocolTCP,
+                Port:     80,
+                TargetPort: intstr.IntOrString{
+                    Type:   intstr.Int,
+                    IntVal: 80,
+                },
+            }},
+        },
+    }
+
+    if err := controllerutil.SetControllerReference(myApp, svc, r.Scheme); err != nil {
+        return err
+    }
+
+    existingService := &corev1.Service{}
+    err := r.Get(ctx, types.NamespacedName{Name: svc.Name, Namespace: svc.Namespace}, existingService)
+    if err != nil {
+        if errors.IsNotFound(err) {
+            return r.Create(ctx, svc)
+        }
+        return err
+    }
+
+    if !reflect.DeepEqual(svc.Spec, existingService.Spec) {
+        existingService.Spec = svc.Spec
+        return r.Update(ctx, existingService)
+    }
+
+    return nil
+}
+
+func (r *MyAppReconciler) createOrUpdateIngress(ctx context.Context, myApp *appsv1.MyApp) error {
+    pathType := networkingv1.PathTypeImplementationSpecific
+    ingress := &networkingv1.Ingress{
+        ObjectMeta: metav1.ObjectMeta{
+            Name:      myApp.Name,
+            Namespace: myApp.Namespace,
+        },
+        Spec: networkingv1.IngressSpec{
+            Rules: []networkingv1.IngressRule{{
+                Host: myApp.Spec.Host,
+                IngressRuleValue: networkingv1.IngressRuleValue{
+                    HTTP: &networkingv1.HTTPIngressRuleValue{
+                        Paths: []networkingv1.HTTPIngressPath{{
+                            Path:     "/",
+                            PathType: &pathType,
+                            Backend: networkingv1.IngressBackend{
+                                Service: &networkingv1.IngressServiceBackend{
+                                    Name: myApp.Name,
+                                    Port: networkingv1.ServiceBackendPort{
+                                        Number: 80,
+                                    },
+                                },
+                            },
+                        }},
+                    },
+                },
+            }},
+        },
+    }
+
+    if err := controllerutil.SetControllerReference(myApp, ingress, r.Scheme); err != nil {
+        return err
+    }
+
+    existingIngress := &networkingv1.Ingress{}
+    err := r.Get(ctx, types.NamespacedName{Name: ingress.Name, Namespace: ingress.Namespace}, existingIngress)
+    if err != nil {
+        if errors.IsNotFound(err) {
+            return r.Create(ctx, ingress)
+        }
+        return err
+    }
+
+    if !reflect.DeepEqual(ingress.Spec, existingIngress.Spec) {
+        existingIngress.Spec = ingress.Spec
+        return r.Update(ctx, existingIngress)
+    }
+
+    return nil
+}
+
+func (r *MyAppReconciler) SetupWithManager(mgr ctrl.Manager) error {
+    return ctrl.NewControllerManagedBy(mgr).
+        For(&appsv1.MyApp{}).
+        WithEventFilter(myAppPredicateFuncs).
+        Complete(r)
+}
