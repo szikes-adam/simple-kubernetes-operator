@@ -4,8 +4,8 @@
 # More info: https://book.kubebuilder.io/reference/project-config.html
 domain: szikes.io
 layout:
-- go.kubebuilder.io/v3
-projectName: simple-kubernetes-operator
+- go.kubebuilder.io/v4
+projectName: temp
 repo: github.com/szikes-adam/simple-kubernetes-operator
 resources:
 - api:

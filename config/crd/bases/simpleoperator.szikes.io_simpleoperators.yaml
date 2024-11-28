@@ -3,8 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.11.1
-  creationTimestamp: null
+    controller-gen.kubebuilder.io/version: v0.16.4
   name: simpleoperators.simpleoperator.szikes.io
 spec:
   group: simpleoperator.szikes.io
@@ -23,19 +22,24 @@ spec:
         description: SimpleOperator is the Schema for the simpleoperators API
         properties:
           apiVersion:
-            description: 'APIVersion defines the versioned schema of this representation
-              of an object. Servers should convert recognized schemas to the latest
-              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
             type: string
           kind:
-            description: 'Kind is a string value representing the REST resource this
-              object represents. Servers may infer this from the endpoint the client
-              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
             type: string
           metadata:
             type: object
           spec:
-            description: SimpleOperatorSpec defines the desired state of SimpleOperator
+            description: SimpleOperatorSpec defines the desired state of SimpleOperator.
             properties:
               host:
                 description: 'Specify the host for accessing Ingress e.g: szikes.hu'
@@ -50,13 +54,17 @@ spec:
                 maximum: 10
                 minimum: 1
                 type: integer
+            required:
+            - host
+            - image
             type: object
           status:
             description: SimpleOperatorStatus defines the observed state of SimpleOperator
             properties:
               availableReplicas:
-                description: 'Shows current number of available replicas. Meaning
-                  of avabilableReplicas: https://stackoverflow.com/questions/66317251/couldnt-understand-availablereplicas-readyreplicas-unavailablereplicas-in-dep'
+                description: |-
+                  Shows current number of available replicas.
+                  Meaning of avabilableReplicas: https://stackoverflow.com/questions/66317251/couldnt-understand-availablereplicas-readyreplicas-unavailablereplicas-in-dep
                 format: int32
                 type: integer
               deploymentErrorMsg:

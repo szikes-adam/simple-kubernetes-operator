@@ -2,11 +2,19 @@
 
 ![CI](https://github.com/szykes/simple-kubernetes-operator/actions/workflows/ci.yml/badge.svg) ![Docker](https://github.com/szykes/simple-kubernetes-operator/actions/workflows/docker.yml/badge.svg)
 
-You as a user can define custom docker image and this image is deployed and managed properly by `simple-kubernetes-operator`. Deploying and managing objects in kubernetes are based on [Kubernetes Operator pattern](https://kubernetes.io/docs/concepts/extend-kubernetes/operator/) and implemented with [Kubebuilder](https://book.kubebuilder.io).
-
 This project was my experimentation. It never was a real product.
 
 The `config/samples/simpleoperator_v1alpha1_simpleoperator.yaml` contains an example for `simple-kubernetes-operator` with simple `NGINX` image.
+
+The SimpleOperator deploys your application and makes it accessible from outside. So,:
+- Creates a Deployment based on your application and number of replicas.
+- Creates a Service to make Deployment available within the cluster.
+- Creates an Ingress to make available your app to the users.
+
+As the git project names says this is a really simple kubernetes operator implementation.
+>>>>>>> 0a7de04 (update tool versions and refactor the code)
+
+This is never meant to be a real product.
 
 > All commands must executed at level of git project root
 

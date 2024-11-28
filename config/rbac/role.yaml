@@ -2,7 +2,6 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  creationTimestamp: null
   name: manager-role
 rules:
 - apiGroups:
@@ -81,11 +80,6 @@ rules:
   - simpleoperator.szikes.io
   resources:
   - simpleoperators/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - simpleoperator.szikes.io
-  resources:
   - simpleoperators/status
   verbs:
   - update

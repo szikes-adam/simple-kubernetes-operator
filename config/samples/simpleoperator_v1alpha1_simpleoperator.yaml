@@ -2,14 +2,11 @@ apiVersion: simpleoperator.szikes.io/v1alpha1
 kind: SimpleOperator
 metadata:
   labels:
-    app.kubernetes.io/name: simpleoperator
-    app.kubernetes.io/instance: simpleoperator-sample
-    app.kubernetes.io/part-of: simple-kubernetes-operator
+    app.kubernetes.io/name: temp
     app.kubernetes.io/managed-by: kustomize
-    app.kubernetes.io/created-by: simple-kubernetes-operator
   name: simpleoperator-sample
 spec:
-  #host: szykes-192-168-1-2.nip.io
-  host: szikes.hu
+  host: szykes-192-168-1-2.nip.io
+  #host: szikes.hu
   image: nginx:latest
   #replicas: 5
