@@ -474,17 +474,18 @@ func newServiceObject(soObject *sov1alpha1.SimpleOperator) *corev1.Service {
 
 func newIngressObject(soObject *sov1alpha1.SimpleOperator) *networkingv1.Ingress {
 	pathType := networkingv1.PathType("Prefix")
+	nginx := "nginx"
 	return &networkingv1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      objectName,
 			Namespace: soObject.Namespace,
 			Annotations: map[string]string{
 				"cert-manager.io/cluster-issuer":             "letsencrypt-staging",
-				"kubernetes.io/ingress.class":                "nginx",
 				"nginx.ingress.kubernetes.io/rewrite-target": "/$1",
 			},
 		},
 		Spec: networkingv1.IngressSpec{
+			IngressClassName: &nginx,
 			TLS: []networkingv1.IngressTLS{
 				{
 					Hosts: []string{
