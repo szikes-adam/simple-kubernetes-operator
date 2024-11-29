@@ -214,7 +214,7 @@ func (r *SimpleOperatorReconciler) reconcileBasedOnCustomObject(ctx context.Cont
 	objectKey := types.NamespacedName{Name: objectName, Namespace: req.Namespace}
 	err = r.Get(ctx, objectKey, current)
 	if err == nil {
-		res, status, msg, err := r.patchObject(ctx, req, soObject.Spec.Replicas, current, expected)
+		res, status, msg, err := r.patchObject(ctx, soObject.Spec.Replicas, current, expected)
 		statusState = status
 		statusErrMsg = msg
 		if err != nil {
@@ -311,7 +311,7 @@ func (r *SimpleOperatorReconciler) createObject(ctx context.Context, req ctrl.Re
 		nil
 }
 
-func (r *SimpleOperatorReconciler) patchObject(ctx context.Context, req ctrl.Request, expectedReplicasCount int32, current client.Object, expected client.Object) (res ctrl.Result, status string, msg string, err error) {
+func (r *SimpleOperatorReconciler) patchObject(ctx context.Context, expectedReplicasCount int32, current client.Object, expected client.Object) (res ctrl.Result, status string, msg string, err error) {
 	status = sov1alpha1.InternalError
 
 	opts := []patch.CalculateOption{
@@ -343,6 +343,7 @@ func (r *SimpleOperatorReconciler) patchObject(ctx context.Context, req ctrl.Req
 			expectedReplicasCount, deployment.Status.AvailableReplicas, current.GetName(), current.GetNamespace(), resourceKindToString(current))
 		status = sov1alpha1.Reconciling
 	}
+	status = sov1alpha1.Reconciled
 	return ctrl.Result{}, status, msg, nil
 }
 
