@@ -232,19 +232,17 @@ func (r *SimpleOperatorReconciler) reconcileBasedOnCustomObject(ctx context.Cont
 			}
 			info.WriteString(fmt.Sprintf("object is NOT found: %s", msg))
 		} else {
+			err = fmt.Errorf("failed to get object: %w, objectName: %s, namespace: %s, kind: %s",
+				err, expected.GetName(), expected.GetNamespace(), resourceKindToString(expected))
 			statusState = sov1alpha1.InternalError
-			info.WriteString(fmt.Sprintf("failed to get object: %s, objectName: %s, namespace: %s, kind: %s",
-				err.Error(), expected.GetName(), expected.GetNamespace(), resourceKindToString(expected)))
+			statusErrMsg = err.Error()
+			return res, info.String(), err
 		}
 	}
 
 	if statusState == sov1alpha1.Reconciled {
 		info.WriteString("reconciled")
 		res = ctrl.Result{}
-	}
-
-	if err != nil {
-		return res, info.String(), err
 	}
 
 	err = r.Get(ctx, req.NamespacedName, soObject)
@@ -300,12 +298,17 @@ func (r *SimpleOperatorReconciler) createObject(ctx context.Context, req ctrl.Re
 		status = sov1alpha1.Creating
 	} else if !errors.IsAlreadyExists(err) {
 		status = sov1alpha1.FailedToCreate
-		msg = fmt.Sprintf("failed to create expected object: %s, objectName: %v, namespace: %v, kind: %v",
-			err.Error(), expected.GetName(), expected.GetNamespace(), resourceKindToString(expected))
+		err = fmt.Errorf("failed to create expected object: %w, objectName: %v, namespace: %v, kind: %v",
+			err, expected.GetName(), expected.GetNamespace(), resourceKindToString(expected))
+		return ctrl.Result{RequeueAfter: gentleRequeueAfterInterval},
+			status,
+			err.Error(),
+			err
 	}
 	return ctrl.Result{},
 		status,
-		msg,
+		fmt.Sprintf("creating object: objectName: %v, namespace: %v, kind: %v",
+			expected.GetName(), expected.GetNamespace(), resourceKindToString(expected)),
 		nil
 }
 
