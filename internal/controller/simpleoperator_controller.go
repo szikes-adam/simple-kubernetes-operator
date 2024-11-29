@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -109,7 +110,7 @@ func (r *SimpleOperatorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	} else {
 		controllerutil.AddFinalizer(soObject, finalizerName)
-		err = r.Update(ctx, soObject)
+		err = r.updateWithRetry(ctx, soObject)
 		if err != nil {
 			log.Error(err, "Failed to add finalizer to custom object", "error", err.Error(), "obejctName", req.Name, "namespace", req.Namespace)
 			return requeue, err
@@ -174,7 +175,7 @@ func (r *SimpleOperatorReconciler) cleanupObjects(ctx context.Context, req ctrl.
 	}
 
 	controllerutil.RemoveFinalizer(soObject, finalizerName)
-	err = r.Update(ctx, soObject)
+	err = r.updateWithRetry(ctx, soObject)
 	if err != nil {
 		return requeue, fmt.Errorf("failed to remove finalizer on custom object: %w", err)
 	}
@@ -189,7 +190,7 @@ func (r *SimpleOperatorReconciler) deleteDeployedObject(ctx context.Context, req
 	if err == nil {
 		controllerutil.RemoveFinalizer(current, finalizerName)
 
-		err = r.Update(ctx, current)
+		err = r.updateWithRetry(ctx, current)
 		if err != nil {
 			return ctrl.Result{RequeueAfter: gentleRequeueAfterInterval}, fmt.Errorf("failed to remove finalizer on object: %w, objectName: %v, objectKind: %v", err, objectName, resourceKindToString(current))
 		}
@@ -260,14 +261,11 @@ func (r *SimpleOperatorReconciler) reconcileBasedOnCustomObject(ctx context.Cont
 	status := threeWayStatusMerge(empty, soObject, statusState, statusErrMsg)
 	soObject.Status = *status
 
-	err = r.Status().Update(ctx, soObject)
+	err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		return r.Status().Update(ctx, soObject)
+	})
 	if err != nil {
-		if errors.IsConflict(err) {
-			info.WriteString("failed to update status of custom object due to ResourceVersion mismatch, retry update")
-			res = ctrl.Result{RequeueAfter: gentleRequeueAfterInterval}
-		} else {
-			return ctrl.Result{RequeueAfter: gentleRequeueAfterInterval}, info.String(), err
-		}
+		return ctrl.Result{RequeueAfter: gentleRequeueAfterInterval}, info.String(), err
 	}
 
 	return res, info.String(), err
@@ -329,7 +327,7 @@ func (r *SimpleOperatorReconciler) patchObject(ctx context.Context, expectedRepl
 	}
 
 	if !patchResult.IsEmpty() {
-		err = r.Update(ctx, expected)
+		err = r.updateWithRetry(ctx, expected)
 		if err != nil {
 			msg = fmt.Sprintf("failed to update objet for applying patch: %s, objectName: %v, namespace: %v, kind: %v", err.Error(), current.GetName(), current.GetNamespace(), resourceKindToString(current))
 			status = sov1alpha1.FailedToUpdateChange
@@ -345,6 +343,17 @@ func (r *SimpleOperatorReconciler) patchObject(ctx context.Context, expectedRepl
 	}
 	status = sov1alpha1.Reconciled
 	return ctrl.Result{}, status, msg, nil
+}
+
+// this solves the error of Update(): "the object has been modified; please apply your changes to the latest version and try again"
+func (r *SimpleOperatorReconciler) updateWithRetry(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
+	retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		return r.Update(ctx, obj, opts...)
+	})
+	if retryErr != nil {
+		return retryErr
+	}
+	return nil
 }
 
 // WithEventFilter(myPredicate()).
