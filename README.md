@@ -308,8 +308,10 @@ kubectl delete --namespace=simple-kubernetes-operator-system deployment.apps/sim
 
 Do a `make deploy` at first, if you have not done it. Make sure this is the wanted tag of docker image:
 ```
-make deploy IMG=ghcr.io/szykes/simple-kubernetes-operator:0.0.1
+make deploy IMG=ghcr.io/szykes/simple-kubernetes-operator:0.0.2
 ```
+
+Change the files according to your needs in `config/default`.
 
 Build manually the resources:
 ```
@@ -325,7 +327,7 @@ kubectl apply -f simpleoperator-0.0.1-deploy-in-cluster.yaml
 
 ### CI
 
-It builds, vets, and runs test using by `make`.
+It builds and vets using by `make`.
 
 Triggered by pushing new commit on `main` and pull request.
 
@@ -376,25 +378,27 @@ Login Succeeded
 
 Verifying access by:
 ```
-docker pull ghcr.io/szykes/simple-kubernetes-operator:0.0.1
+docker pull ghcr.io/szykes/simple-kubernetes-operator:0.0.2
 ```
 
 You should see similar to this:
 ```
-main: Pulling from szykes/simple-kubernetes-operator
-10f855b03c8a: Pull complete
-fe5ca62666f0: Pull complete
-b438aade3922: Pull complete
-fcb6f6d2c998: Pull complete
-e8c73c638ae9: Pull complete
-1e3d9b7d1452: Pull complete
+0.0.2: Pulling from szykes/simple-kubernetes-operator
+0baecf37abee: Pull complete
+bfb59b82a9b6: Pull complete
+efa9d1d5d3a2: Pull complete
+a62778643d56: Pull complete
+7c12895b777b: Pull complete
+3214acf345c0: Pull complete
+5664b15f108b: Pull complete
+0bab15eea81d: Pull complete
 4aa0ea1413d3: Pull complete
-7c881f9ab25e: Pull complete
-5627a970d25e: Pull complete
-aefd672debf9: Pull complete
-Digest: sha256:48e6d8e4cd8252ba3044a1baae7deac41e1be42d80320c3b27d6fae2f14c4cc0
-Status: Downloaded newer image for ghcr.io/szykes/simple-kubernetes-operator:0.0.1
-ghcr.io/szykes/simple-kubernetes-operator:0.0.1
+da7816fa955e: Pull complete
+9aee425378d2: Pull complete
+a74c5d8d7bda: Pull complete
+Digest: sha256:0cab33b161604a7554ecb717ab897042bc3ca9f49f1e665da46852f0818bef7a
+Status: Downloaded newer image for ghcr.io/szykes/simple-kubernetes-operator:0.0.2
+ghcr.io/szykes/simple-kubernetes-operator:0.0.2
 ```
 
 Reference:
@@ -407,5 +411,4 @@ Not all areas of this project were deeply investigated and built.
 Here is the list that I would do in a next phase:
 * See `TODO`s in the code
 * Have a proper versioning (rc, beta, etc.) for git project and docker image
-* Use TLS between within cluster
-* Encrypt Secrets
+* etc.

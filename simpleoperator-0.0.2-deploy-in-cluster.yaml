@@ -1,0 +1,451 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: temp
+    control-plane: controller-manager
+  name: simpleoperator-system
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.16.4
+  name: simpleoperators.simpleoperator.szikes.io
+spec:
+  group: simpleoperator.szikes.io
+  names:
+    kind: SimpleOperator
+    listKind: SimpleOperatorList
+    plural: simpleoperators
+    shortNames:
+    - so
+    singular: simpleoperator
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: SimpleOperator is the Schema for the simpleoperators API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: SimpleOperatorSpec defines the desired state of SimpleOperator.
+            properties:
+              host:
+                description: 'Specify the host for accessing Ingress e.g: szikes.hu'
+                type: string
+              image:
+                description: 'Speficy the image with a tag optionally e.g: nginx:latest'
+                type: string
+              replicas:
+                default: 1
+                description: Specify the number of replicas.
+                format: int32
+                maximum: 10
+                minimum: 1
+                type: integer
+            required:
+            - host
+            - image
+            type: object
+          status:
+            description: SimpleOperatorStatus defines the observed state of SimpleOperator
+            properties:
+              availableReplicas:
+                description: |-
+                  Shows current number of available replicas.
+                  Meaning of avabilableReplicas: https://stackoverflow.com/questions/66317251/couldnt-understand-availablereplicas-readyreplicas-unavailablereplicas-in-dep
+                format: int32
+                type: integer
+              deploymentErrorMsg:
+                description: Shows error in case of deploymentState InternalError
+                  or FailedTo*
+                type: string
+              deploymentState:
+                description: Indicates the current state of deployment.
+                type: string
+              ingressErrorMsg:
+                description: Shows error in case of ingressState InternalError or
+                  FailedTo*
+                type: string
+              ingressState:
+                description: Indicates the current state of ingress.
+                type: string
+              lastUpdated:
+                description: Indicates the last time, when the `simpleoperator` has
+                  changed on resource
+                format: date-time
+                type: string
+              serviceErrorMsg:
+                description: Shows error in case of serviceState InternalError or
+                  FailedTo*
+                type: string
+              serviceState:
+                description: Indicates the current state of service.
+                type: string
+            required:
+            - availableReplicas
+            - deploymentState
+            - ingressState
+            - lastUpdated
+            - serviceState
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: temp
+  name: so-controller-manager
+  namespace: simpleoperator-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: temp
+  name: so-leader-election-role
+  namespace: simpleoperator-system
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: so-manager-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - services
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - services/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - deployments/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - apps
+  resources:
+  - deployments/status
+  verbs:
+  - get
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - ingresses
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - ingresses/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - simpleoperator.szikes.io
+  resources:
+  - simpleoperators
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - simpleoperator.szikes.io
+  resources:
+  - simpleoperators/finalizers
+  - simpleoperators/status
+  verbs:
+  - update
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: so-metrics-auth-role
+rules:
+- apiGroups:
+  - authentication.k8s.io
+  resources:
+  - tokenreviews
+  verbs:
+  - create
+- apiGroups:
+  - authorization.k8s.io
+  resources:
+  - subjectaccessreviews
+  verbs:
+  - create
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: so-metrics-reader
+rules:
+- nonResourceURLs:
+  - /metrics
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: temp
+  name: so-simpleoperator-editor-role
+rules:
+- apiGroups:
+  - simpleoperator.szikes.io
+  resources:
+  - simpleoperators
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - simpleoperator.szikes.io
+  resources:
+  - simpleoperators/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: temp
+  name: so-simpleoperator-viewer-role
+rules:
+- apiGroups:
+  - simpleoperator.szikes.io
+  resources:
+  - simpleoperators
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - simpleoperator.szikes.io
+  resources:
+  - simpleoperators/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: temp
+  name: so-leader-election-rolebinding
+  namespace: simpleoperator-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: so-leader-election-role
+subjects:
+- kind: ServiceAccount
+  name: so-controller-manager
+  namespace: simpleoperator-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: temp
+  name: so-manager-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: so-manager-role
+subjects:
+- kind: ServiceAccount
+  name: so-controller-manager
+  namespace: simpleoperator-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: so-metrics-auth-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: so-metrics-auth-role
+subjects:
+- kind: ServiceAccount
+  name: so-controller-manager
+  namespace: simpleoperator-system
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: temp
+    control-plane: controller-manager
+  name: so-controller-manager-metrics-service
+  namespace: simpleoperator-system
+spec:
+  ports:
+  - name: https
+    port: 8443
+    protocol: TCP
+    targetPort: 8443
+  selector:
+    control-plane: controller-manager
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: temp
+    control-plane: controller-manager
+  name: so-controller-manager
+  namespace: simpleoperator-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      control-plane: controller-manager
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/default-container: manager
+      labels:
+        control-plane: controller-manager
+    spec:
+      containers:
+      - args:
+        - --metrics-bind-address=:8443
+        - --leader-elect
+        - --health-probe-bind-address=:8081
+        command:
+        - /manager
+        image: ghcr.io/szykes/simple-kubernetes-operator:0.0.2
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8081
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        name: manager
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          limits:
+            cpu: 500m
+            memory: 128Mi
+          requests:
+            cpu: 10m
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+      securityContext:
+        runAsNonRoot: true
+      serviceAccountName: so-controller-manager
+      terminationGracePeriodSeconds: 10
