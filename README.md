@@ -2,25 +2,41 @@
 
 ![CI](https://github.com/szykes/simple-kubernetes-operator/actions/workflows/ci.yml/badge.svg) ![Docker](https://github.com/szykes/simple-kubernetes-operator/actions/workflows/docker.yml/badge.svg)
 
-This project was my experimentation. It never was a real product.
+As the git project names says this is a really simple kubernetes operator implementation.
 
-The `config/samples/simpleoperator_v1alpha1_simpleoperator.yaml` contains an example for `simple-kubernetes-operator` with simple `NGINX` image.
-
-The SimpleOperator deploys your application and makes it accessible from outside. So,:
+The SimpleOperator (`so`) deploys your application and makes it accessible from outside. So,:
 - Creates a Deployment based on your application and number of replicas.
 - Creates a Service to make Deployment available within the cluster.
 - Creates an Ingress to make available your app to the users.
 
-As the git project names says this is a really simple kubernetes operator implementation.
->>>>>>> 0a7de04 (update tool versions and refactor the code)
+The following use cases are implemented (objects mean Deployments, Service, and Ingress):
+- When the `so` object is created, the Operator will deploy objects based on the `so`.
+- When the `so` object is changing (Host, Image, Replicas), the Operator will modify objects based on the change.
+- When the `so` is triggered to be deleted and:
+   - and the Operator is already running, the Operator will delete the objects, then removes the finalizer on `so`, so the deletion of `so` succeeds.
+   - and the Operator starts later, the Operator will be notified about the deletion trigger event. It will delete the objects, then removes the finalizer on `so`, so the deletion of `so` succeeds.
+- When someone changes the relevant part of objects, the Operator will undo thoses changes based on the `so`.
+
+The Status of `so` wants to be transparent; therefore, the following information is available:
+- Current State of Deployments, Service, and Ingress, possible values: Reconciled, Reconciling, Creating, Deleted, InternalError, etc.
+- If the Current Status needs an explanation, then some details appear here to give more info what is happening.
+- Available Replicas
+- Last Updated.
 
 This is never meant to be a real product.
+
+The `config/samples/` contains an example for `simple-kubernetes-operator` with simple `NGINX` image.
 
 > All commands must executed at level of git project root
 
 ## tl;dr
 
 Steps to make `simpleoperator` work on a `kind` based cluster:
+
+Create a cluster with `kind`:
+```
+kind create cluster --name=simple-operator --config=simple-1-control-2-workers.yaml
+```
 
 Setup `NGINX` for `kind`:
 ```
@@ -34,7 +50,7 @@ kubectl wait --namespace ingress-nginx --for=condition=ready pod --selector=app.
 
 Setup `cert-manager`:
 ```
-kubectl apply -f https://github.com/jetstack/cert-manager/releases/download/v1.11.0/cert-manager.yaml
+kubectl apply -f https://github.com/jetstack/cert-manager/releases/download/v1.16.2/cert-manager.yaml
 ```
 
 Install the staging issuer:
@@ -49,14 +65,14 @@ kubectl apply -f simpleoperator-0.0.1-deploy-in-cluster.yaml
 
 Test with:
 ```
-kubectl apply -f config/samples/simpleoperator_v1alpha1_simpleoperator.yaml
+kubectl apply -f config/samples/
 kubectl edit so simpleoperator-sample
-kubectl delete -f config/samples/simpleoperator_v1alpha1_simpleoperator.yaml
+kubectl delete -f config/samples/
 ```
 
 ## Prerequisite
 
-Having installed `docker` (`engine` version 23.0.1, `containerd` version: 1.6.18), `kubectl` (v1.26.2), and `kind` (v0.17.0) on a Linux based server.
+Having installed `docker`, `kubectl` (v1.31.1), and `kind` (v0.25.0) on a Linux based server.
 
 Server has CPU Intel J3455, 8 GB RAM, and having 60 GB free space for /.
 
@@ -129,7 +145,7 @@ If you don't want to access outside the cluster, then use [nip.io](https://nip.i
 
 Setup `cert-manager`:
 ```
-kubectl apply -f https://github.com/jetstack/cert-manager/releases/download/v1.11.0/cert-manager.yaml
+kubectl apply -f https://github.com/jetstack/cert-manager/releases/download/v1.16.2/cert-manager.yaml
 ```
 
 Check what resources are deployed:
@@ -168,7 +184,7 @@ Reference:
 
 ### Custom Resource Controller
 
-Install `go` (1.19) & `kubebuilder` (3.9.1) at first.
+Install `go` (1.22+) & `kubebuilder` (4.3.1) at first.
 
 Change directory to git project and execute:
 ```
@@ -223,6 +239,13 @@ make run
 
 Reference:
 [kubebuilder - Running and deploying the controller](https://book.kubebuilder.io/cronjob-tutorial/running.html)
+
+### Run tests
+
+Just run:
+```
+make test
+```
 
 ### See log of deployed controller
 
