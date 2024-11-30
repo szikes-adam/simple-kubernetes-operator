@@ -22,15 +22,16 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+
 	"golang.org/x/exp/maps"
-	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -109,7 +110,7 @@ var _ = Describe("SimpleOperator controller", func() {
 		}, timeout, interval).Should(Equal(""))
 	}
 
-	createSimpleOperatorObject := func(objectName, objectNamespace, host, image string, replicas int32) *sov1alpha1.SimpleOperator {
+	createSimpleOperatorObject := func(host, image string, replicas int32) *sov1alpha1.SimpleOperator {
 		return &sov1alpha1.SimpleOperator{
 			TypeMeta: metav1.TypeMeta{
 				APIVersion: "simpleoperator.szikes.io/v1alpha1",
@@ -184,7 +185,7 @@ var _ = Describe("SimpleOperator controller", func() {
 	Describe("Given an ordinary SimpleOperator object", func() {
 
 		BeforeEach(func() {
-			soObject := createSimpleOperatorObject(objectName, objectNamespace, ordinaryHost, ordinaryImage, ordinaryReplicas)
+			soObject := createSimpleOperatorObject(ordinaryHost, ordinaryImage, ordinaryReplicas)
 			Expect(k8sClient.Create(ctx, soObject)).Should(Succeed())
 		})
 
@@ -271,10 +272,7 @@ var _ = Describe("SimpleOperator controller", func() {
 
 			BeforeEach(func() {
 				doReconcile(ordinaryReplicas)
-				waitForReconciledState(ordinaryReplicas)
-
-				soObject := &sov1alpha1.SimpleOperator{}
-				Expect(k8sClient.Get(ctx, soObjectKey, soObject)).Should(Succeed())
+				soObject := waitForReconciledState(ordinaryReplicas)
 
 				soObject.Spec.Host = differentHost
 				soObject.Spec.Image = differentImage
@@ -390,7 +388,7 @@ var _ = Describe("SimpleOperator controller", func() {
 	// Describe("Given a marked for deletion SimpleOperator object", func() {
 
 	// 	BeforeEach(func() {
-	// 		soObject := createSimpleOperatorObject(objectName, objectNamespace, ordinaryHost, ordinaryImage, ordinaryReplicas)
+	// 		soObject := createSimpleOperatorObject(ordinaryHost, ordinaryImage, ordinaryReplicas)
 	// 		soObject.ObjectMeta.Finalizers = append(soObject.ObjectMeta.Finalizers, finalizerName)
 	// 		var gracePeriod int64 = 0
 	// 		soObject.ObjectMeta.DeletionGracePeriodSeconds = &gracePeriod
@@ -477,7 +475,7 @@ var _ = Describe("SimpleOperator controller", func() {
 
 	Describe("Given a SimpleOperator object with missing keys (these have built-in default values)", func() {
 		BeforeEach(func() {
-			soObject := createSimpleOperatorObject(objectName, objectNamespace, ordinaryHost, ordinaryImage, noReplicas)
+			soObject := createSimpleOperatorObject(ordinaryHost, ordinaryImage, noReplicas)
 			Expect(k8sClient.Create(ctx, soObject)).Should(Succeed())
 		})
 
