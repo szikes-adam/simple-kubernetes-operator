@@ -219,15 +219,21 @@ func (r *SimpleOperatorReconciler) reconcileBasedOnCustomObject(ctx context.Cont
 		statusState = status
 		statusErrMsg = msg
 		if err != nil {
+			if res, err = r.updateStatus(ctx, req, soObject, status, msg); err != nil {
+				return ctrl.Result{RequeueAfter: gentleRequeueAfterInterval}, info.String(), err
+			}
 			return res, info.String(), err
 		}
 		info.WriteString(fmt.Sprintf("handle patch on object succeeded: %s", msg))
 	} else {
 		if errors.IsNotFound(err) {
-			res, status, msg, err := r.createObject(ctx, req, soObject, current, expected)
+			res, status, msg, err := r.createObject(ctx, soObject, expected)
 			statusState = status
 			statusErrMsg = msg
 			if err != nil {
+				if res, err = r.updateStatus(ctx, req, soObject, status, msg); err != nil {
+					return ctrl.Result{RequeueAfter: gentleRequeueAfterInterval}, info.String(), err
+				}
 				return res, info.String(), err
 			}
 			info.WriteString(fmt.Sprintf("object is NOT found: %s", msg))
@@ -236,6 +242,9 @@ func (r *SimpleOperatorReconciler) reconcileBasedOnCustomObject(ctx context.Cont
 				err, expected.GetName(), expected.GetNamespace(), resourceKindToString(expected))
 			statusState = sov1alpha1.InternalError
 			statusErrMsg = err.Error()
+			if res, err = r.updateStatus(ctx, req, soObject, statusState, statusErrMsg); err != nil {
+				return ctrl.Result{RequeueAfter: gentleRequeueAfterInterval}, info.String(), err
+			}
 			return res, info.String(), err
 		}
 	}
@@ -256,12 +265,8 @@ func (r *SimpleOperatorReconciler) reconcileBasedOnCustomObject(ctx context.Cont
 		soObject.Status.AvabilableReplicas = deployment.Status.AvailableReplicas
 	}
 
-	status := threeWayStatusMerge(empty, soObject, statusState, statusErrMsg)
-	soObject.Status = *status
-
-	err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		return r.Status().Update(ctx, soObject)
-	})
+	info.WriteString(fmt.Sprintf(" statusState: %v, statusErrMsg: %v ", statusState, statusErrMsg))
+	res, err = r.updateStatus(ctx, empty, soObject, statusState, statusErrMsg)
 	if err != nil {
 		return ctrl.Result{RequeueAfter: gentleRequeueAfterInterval}, info.String(), err
 	}
@@ -269,7 +274,7 @@ func (r *SimpleOperatorReconciler) reconcileBasedOnCustomObject(ctx context.Cont
 	return res, info.String(), err
 }
 
-func (r *SimpleOperatorReconciler) createObject(ctx context.Context, req ctrl.Request, soObject *sov1alpha1.SimpleOperator, empty client.Object, expected client.Object) (res ctrl.Result, status string, msg string, err error) {
+func (r *SimpleOperatorReconciler) createObject(ctx context.Context, soObject *sov1alpha1.SimpleOperator, expected client.Object) (res ctrl.Result, status string, msg string, err error) {
 	status = sov1alpha1.FailedToCreate
 	controllerutil.AddFinalizer(expected, finalizerName)
 
@@ -348,6 +353,30 @@ func (r *SimpleOperatorReconciler) patchObject(ctx context.Context, expectedRepl
 	return ctrl.Result{}, status, msg, nil
 }
 
+func (r *SimpleOperatorReconciler) updateStatus(ctx context.Context, obj any, soObject *sov1alpha1.SimpleOperator, statusState string, statusErrMsg string) (ctrl.Result, error) {
+	soObject.Status.LastUpdated = metav1.Now()
+
+	switch obj.(type) {
+	case *appsv1.Deployment:
+		soObject.Status.DeploymentState = statusState
+		soObject.Status.DeploymentErrorMsg = statusErrMsg
+	case *corev1.Service:
+		soObject.Status.ServiceState = statusState
+		soObject.Status.ServiceErrorMsg = statusErrMsg
+	case *networkingv1.Ingress:
+		soObject.Status.IngressState = statusState
+		soObject.Status.IngressErrorMsg = statusErrMsg
+	}
+
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		return r.Status().Update(ctx, soObject)
+	})
+	if err != nil {
+		return ctrl.Result{RequeueAfter: gentleRequeueAfterInterval}, err
+	}
+	return ctrl.Result{}, nil
+}
+
 // this solves the error of Update(): "the object has been modified; please apply your changes to the latest version and try again"
 func (r *SimpleOperatorReconciler) updateWithRetry(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
 	retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
@@ -397,32 +426,6 @@ func resourceKindToString(obj any) string {
 		return "Ingress"
 	}
 	return ""
-}
-
-func threeWayStatusMerge(obj any, soObject *sov1alpha1.SimpleOperator, statusState string, statusErrMsg string) *sov1alpha1.SimpleOperatorStatus {
-	status := sov1alpha1.SimpleOperatorStatus{
-		LastUpdated:        metav1.Now(),
-		AvabilableReplicas: soObject.Status.AvabilableReplicas,
-		DeploymentState:    soObject.Status.DeploymentState,
-		DeploymentErrorMsg: soObject.Status.DeploymentErrorMsg,
-		ServiceState:       soObject.Status.ServiceState,
-		ServiceErrorMsg:    soObject.Status.ServiceErrorMsg,
-		IngressState:       soObject.Status.IngressState,
-		IngressErrorMsg:    soObject.Status.IngressErrorMsg,
-	}
-
-	switch obj.(type) {
-	case *appsv1.Deployment:
-		status.DeploymentState = statusState
-		status.DeploymentErrorMsg = statusErrMsg
-	case *corev1.Service:
-		status.ServiceState = statusState
-		status.ServiceErrorMsg = statusErrMsg
-	case *networkingv1.Ingress:
-		status.IngressState = statusState
-		status.IngressErrorMsg = statusErrMsg
-	}
-	return &status
 }
 
 func newDeploymentObject(soObject *sov1alpha1.SimpleOperator) *appsv1.Deployment {
